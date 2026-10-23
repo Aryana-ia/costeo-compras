@@ -270,23 +270,35 @@ pid = prov.id
 k = lambda campo: f"c_{pid}_{campo}"  # noqa: E731 - clave de widget por proveedor
 
 
+def valores_widgets(c: Condiciones) -> dict:
+    """Condiciones → valores en el formato que usan los widgets."""
+    return {
+        "moneda": c.moneda, "precio_por": c.precio_por, "iva_incluido": c.iva_incluido, "iva_base": c.iva_base,
+        "pago": c.pago, "pago_valor": float(c.pago_valor), "flete": float(c.flete), "flete_moneda": c.flete_moneda,
+        "toneladas": float(c.toneladas), "flete_carga_real": c.flete_carga_real,
+        "descuentos": "; ".join(fmt.num(d).rstrip("0").rstrip(",") for d in c.descuentos),
+    }
+
+
 def cargar_widgets(c: Condiciones) -> None:
-    """Pone los valores de unas condiciones en los widgets de este proveedor."""
-    ss[k("moneda")] = c.moneda
-    ss[k("precio_por")] = c.precio_por
-    ss[k("iva_incluido")] = c.iva_incluido
-    ss[k("iva_base")] = c.iva_base
-    ss[k("pago")] = c.pago
-    ss[k("pago_valor")] = float(c.pago_valor)
-    ss[k("flete")] = float(c.flete)
-    ss[k("flete_moneda")] = c.flete_moneda
-    ss[k("toneladas")] = float(c.toneladas)
-    ss[k("flete_carga_real")] = c.flete_carga_real
-    ss[k("descuentos")] = "; ".join(fmt.num(d).rstrip("0").rstrip(",") for d in c.descuentos)
+    """Pone todas las condiciones en los widgets de este proveedor (pisa lo que haya)."""
+    for campo, v in valores_widgets(c).items():
+        ss[k(campo)] = v
 
 
-if k("moneda") not in ss:
-    cargar_widgets(ss.conds.get(pid, prov.condiciones))
+# Streamlit descarta el estado de un widget cuando deja de dibujarse (por ejemplo el
+# "% pagado en dólares" si la forma de pago no lo usa, o todos al cambiar de proveedor):
+# la clave desaparece o, al volver a dibujarse, el widget vuelve a su valor por defecto.
+# Solución documentada: reasignar cada clave en cada corrida (así queda como valor
+# propio y no como estado de widget) y restaurar las que falten desde lo último guardado.
+GUARDADAS = valores_widgets(ss.conds.get(pid, prov.condiciones))
+for _campo, _valor in GUARDADAS.items():
+    ss[k(_campo)] = ss[k(_campo)] if k(_campo) in ss else _valor
+
+
+def valor(campo: str):
+    """Valor actual del campo; si su widget no se dibujó en esta corrida, el último guardado."""
+    return ss.get(k(campo), GUARDADAS[campo])
 
 
 def leer_descuentos(texto: str) -> list[float]:
@@ -307,12 +319,12 @@ g2.selectbox("Precio cotizado por", list(PRECIO_POR), format_func=PRECIO_POR.get
 g3.selectbox("¿El precio incluye IVA?", [False, True], format_func=lambda v: "Sí, viene con IVA" if v else "No, viene sin IVA", key=k("iva_incluido"))
 g4.selectbox("IVA calculado sobre", list(IVA_BASE), format_func=IVA_BASE.get, key=k("iva_base"))
 
-if ss[k("moneda")] == "usd":
+if valor("moneda") == "usd":
     h1, h2 = st.columns(2)
     h1.selectbox("Cómo se paga la base", list(FORMAS_PAGO), format_func=FORMAS_PAGO.get, key=k("pago"))
-    if ss[k("pago")] == "pct":
+    if valor("pago") == "pct":
         h2.number_input("% pagado en dólares", min_value=0.0, max_value=100.0, step=5.0, key=k("pago_valor"))
-    elif ss[k("pago")] == "monto":
+    elif valor("pago") == "monto":
         h2.number_input("Monto pagado en dólares ($)", min_value=0.0, step=500.0, key=k("pago_valor"),
                         help="Ejemplo COMPLEJO: si la gandola cuesta 31.500 y 13.000 se pagan en $, escribe 13000. El resto se paga en Bs a BCV.")
     st.caption(md("El IVA de una cotización en dólares se paga siempre en Bs a tasa BCV: para el costo se lleva a $ con × BCV ÷ interna."))
@@ -328,10 +340,10 @@ st.toggle("Repartir el flete sobre los kilos reales del pedido (si no llena la g
 
 try:
     cond = Condiciones(
-        moneda=ss[k("moneda")], precio_por=ss[k("precio_por")], iva_incluido=ss[k("iva_incluido")],
-        iva_base=ss[k("iva_base")], pago=ss[k("pago")], pago_valor=ss[k("pago_valor")],
-        flete=ss[k("flete")], flete_moneda=ss[k("flete_moneda")], toneladas=ss[k("toneladas")],
-        flete_carga_real=ss[k("flete_carga_real")], descuentos=leer_descuentos(ss[k("descuentos")]),
+        moneda=valor("moneda"), precio_por=valor("precio_por"), iva_incluido=valor("iva_incluido"),
+        iva_base=valor("iva_base"), pago=valor("pago"), pago_valor=valor("pago_valor"),
+        flete=valor("flete"), flete_moneda=valor("flete_moneda"), toneladas=valor("toneladas"),
+        flete_carga_real=valor("flete_carga_real"), descuentos=leer_descuentos(valor("descuentos")),
     )
 except ErrorDeDatos as e:
     st.error(str(e))
