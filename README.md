@@ -49,6 +49,7 @@ Todo se lleva a **dólares a tasa interna** (“$ interno”), que es la unidad 
 | 2 | Quitar el IVA si viene incluido | `base = precio ÷ (1 + IVA efectivo)` |
 | 3 | Descuentos, **siempre sobre la base**, en cascada | `base × (1 − d1) × (1 − d2) …` |
 | 4 | IVA | `base neta × 16 %` (o `× 16 % × 10 %` si el proveedor cobra IVA sobre el 10 %) |
+| 4b | IVA «full» (ACEROS LAMINADOS) | Si el perfil dice *IVA sobre la base sin descuento*: `base ANTES de descuentos × 16 %`. La base que se paga sí lleva el descuento. |
 | 5a | Base a $ interno | Parte pagada en $ (o Bs a tasa interna): `× 1` · parte pagada en Bs a BCV: `× BCV ÷ interna` |
 | 5b | IVA a $ interno | Cotización en $: el IVA **siempre** se paga en Bs a BCV → `× BCV ÷ interna` |
 | 5c | Cotización en Bs | Base e IVA `÷ interna` |
@@ -87,6 +88,10 @@ Este caso está en `tests/test_calculo.py`.
 | 100 % en Bs a tasa BCV | × BCV ÷ interna | Bs a BCV |
 | Un % en $, el resto en Bs a BCV (**UNICOM: 50 %**) | % × 1 + resto × BCV ÷ interna | Bs a BCV |
 | Un monto en $, el resto en Bs a BCV (**COMPLEJO**) | monto × 1 + (total − monto) × BCV ÷ interna | Bs a BCV |
+
+**ACEROS LAMINADOS:** el descuento se aplica a la base, pero el IVA se cobra sobre la base completa (IVA full). En el perfil: *IVA con descuento o sin descuento* → **Sobre la base sin descuento**.
+
+Ejemplo: base $ 100 con 10 % de descuento → se pagan $ 90 de base + $ 16 de IVA (no $ 14,40) = $ 106.
 
 **COMPLEJO:** si la gandola cuesta 31.500 y se pagan 13.000 en dólares, escribes `13000`. La app reparte esa proporción entre todos los productos del pedido.
 

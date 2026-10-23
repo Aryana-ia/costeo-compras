@@ -16,6 +16,10 @@ from typing import Any
 MONEDAS = {"usd": "Dólares", "bs": "Bolívares"}
 PRECIO_POR = {"pieza": "Pieza", "tonelada": "Tonelada", "kg": "Kilo"}
 IVA_BASE = {"100": "El 100% de la base", "10": "Solo el 10% de la base"}
+IVA_DESCUENTO = {
+    False: "Sobre la base con descuento",
+    True: "Sobre la base sin descuento (IVA full)",
+}
 FORMAS_PAGO = {
     "divisa": "100% en $ (o Bs a tasa interna)",
     "bcv": "100% en Bs a tasa BCV",
@@ -90,6 +94,7 @@ class Condiciones:
     precio_por: str = "pieza"
     iva_incluido: bool = False
     iva_base: str = "100"
+    iva_sin_descuento: bool = False  # el IVA se calcula sobre la base ANTES de descuentos (ACEROS LAMINADOS)
     pago: str = "divisa"
     pago_valor: float = 0.0          # % (pago = pct) o monto en $ (pago = monto)
     flete: float = 0.0               # monto del flete de una gandola
@@ -133,7 +138,7 @@ class Condiciones:
         """Huella para saber si dos condiciones son equivalentes."""
         usa_valor = self.pago in ("pct", "monto")
         return (
-            self.moneda, self.precio_por, bool(self.iva_incluido), self.iva_base,
+            self.moneda, self.precio_por, bool(self.iva_incluido), self.iva_base, bool(self.iva_sin_descuento),
             self.pago, round(self.pago_valor, 6) if usa_valor else 0.0,
             round(self.flete, 6), self.flete_moneda, round(self.toneladas, 6),
             bool(self.flete_carga_real), tuple(round(d, 6) for d in self.descuentos),

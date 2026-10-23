@@ -83,6 +83,27 @@ def test_precio_con_iva_se_quita_y_descuento_va_sobre_la_base():
     assert r.iva_int == pytest.approx(14.4 * F)          # IVA en Bs a BCV
 
 
+def test_iva_full_sin_descuento_aceros_laminados():
+    """El descuento baja la base, pero el IVA se calcula sobre la base completa."""
+    cond = Condiciones(moneda="usd", descuentos=[10], iva_sin_descuento=True, pago="divisa")
+    r = calcular(params(), cond, [cabilla_media(precio=100)]).lineas[0]
+    assert r.pieza_sin_iva == pytest.approx(90.0)     # base con descuento
+    assert r.iva_pieza == pytest.approx(16.0)         # IVA full: 16 % de 100, no de 90
+    assert r.pieza_con_iva == pytest.approx(106.0)
+    assert r.base_int == pytest.approx(90.0)
+    assert r.iva_int == pytest.approx(16.0 * F)       # el IVA se sigue pagando en Bs a BCV
+    con_descuento = calcular(params(), Condiciones(moneda="usd", descuentos=[10]), [cabilla_media(precio=100)]).lineas[0]
+    assert con_descuento.iva_pieza == pytest.approx(14.4)
+
+
+def test_iva_full_con_precio_que_ya_trae_iva():
+    cond = Condiciones(moneda="usd", iva_incluido=True, descuentos=[10], iva_sin_descuento=True)
+    r = calcular(params(), cond, [cabilla_media(precio=116)]).lineas[0]
+    assert r.lista_sin_iva == pytest.approx(100.0)
+    assert r.pieza_sin_iva == pytest.approx(90.0)
+    assert r.iva_pieza == pytest.approx(16.0)
+
+
 def test_iva_sobre_el_10_por_ciento():
     cond = Condiciones(moneda="usd", iva_base="10")
     r = calcular(params(), cond, [cabilla_media(precio=100)]).lineas[0]

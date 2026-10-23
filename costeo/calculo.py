@@ -10,6 +10,8 @@ Pasos, idénticos para todos los proveedores
 2. Si el precio trae IVA, se le quita: base = precio ÷ (1 + IVA efectivo).
 3. Los descuentos se aplican SIEMPRE sobre la base, en cascada.
 4. IVA = base neta × 16 %  (o × 16 % × 10 % si el proveedor cobra IVA sobre el 10 %).
+   Si el proveedor calcula el IVA sin el descuento (ACEROS LAMINADOS), el IVA es
+   «full»: base ANTES de descuentos × 16 %. La base que se paga sí lleva el descuento.
 5. Todo se lleva a dólares a tasa interna ("$ interno"):
 
    * Cotización en Bs: base e IVA ÷ tasa interna.
@@ -120,7 +122,8 @@ def calcular(p: Parametros, cond: Condiciones, lineas: list[Linea]) -> Resultado
         r.lista_sin_iva = r.precio_pieza / (1 + tasa_iva) if cond.iva_incluido else r.precio_pieza
         r.factor_desc = factor_desc_general * (1 - (ln.desc_extra or 0) / 100)
         r.pieza_sin_iva = r.lista_sin_iva * r.factor_desc
-        r.iva_pieza = r.pieza_sin_iva * tasa_iva
+        base_iva = r.lista_sin_iva if cond.iva_sin_descuento else r.pieza_sin_iva
+        r.iva_pieza = base_iva * tasa_iva
         r.pieza_con_iva = r.pieza_sin_iva + r.iva_pieza
         r.kg_sin_iva = r.pieza_sin_iva / ln.peso
         r.kg_con_iva = r.pieza_con_iva / ln.peso
@@ -276,4 +279,6 @@ def describir_pago(cond: Condiciones) -> str:
 
 def describir_iva(cond: Condiciones, iva: float) -> str:
     base = f"IVA {iva:g}% sobre el 10%" if cond.iva_base == "10" else f"IVA {iva:g}%"
+    if cond.iva_sin_descuento and cond.descuentos:
+        base += " sin descuento (full)"
     return ("Precio con IVA" if cond.iva_incluido else "Precio sin IVA") + " · " + base

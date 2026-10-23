@@ -22,7 +22,7 @@ from costeo.exportar import excel, imagen, tabla
 from costeo.historial import Historial, leer_historial, plantilla_excel
 from costeo.historial import ejemplo as historial_ejemplo
 from costeo.modelos import (
-    FORMAS_PAGO, IVA_BASE, MONEDAS, MONEDAS_FLETE, PRECIO_POR,
+    FORMAS_PAGO, IVA_BASE, IVA_DESCUENTO, MONEDAS, MONEDAS_FLETE, PRECIO_POR,
     Condiciones, ErrorDeDatos, Linea, Parametros, Proveedor,
 )
 
@@ -274,6 +274,7 @@ def valores_widgets(c: Condiciones) -> dict:
     """Condiciones → valores en el formato que usan los widgets."""
     return {
         "moneda": c.moneda, "precio_por": c.precio_por, "iva_incluido": c.iva_incluido, "iva_base": c.iva_base,
+        "iva_sin_descuento": c.iva_sin_descuento,
         "pago": c.pago, "pago_valor": float(c.pago_valor), "flete": float(c.flete), "flete_moneda": c.flete_moneda,
         "toneladas": float(c.toneladas), "flete_carga_real": c.flete_carga_real,
         "descuentos": "; ".join(fmt.num(d).rstrip("0").rstrip(",") for d in c.descuentos),
@@ -336,12 +337,15 @@ f1.number_input("Flete por gandola", min_value=0.0, step=50.0, key=k("flete"))
 f2.selectbox("Moneda del flete", list(MONEDAS_FLETE), format_func=MONEDAS_FLETE.get, key=k("flete_moneda"))
 f3.number_input("Toneladas por gandola", min_value=1.0, step=1.0, key=k("toneladas"))
 f4.text_input("Descuentos sobre la base %", key=k("descuentos"), placeholder="Ej. 3; 2", help="En cascada: 3; 2 = 3% y luego 2% sobre lo que queda.")
+d1, d2 = st.columns([2, 2])
+d1.selectbox("IVA con descuento o sin descuento", list(IVA_DESCUENTO), format_func=IVA_DESCUENTO.get, key=k("iva_sin_descuento"),
+             help="ACEROS LAMINADOS: el descuento se aplica a la base, pero el IVA se cobra sobre la base completa (IVA full).")
 st.toggle("Repartir el flete sobre los kilos reales del pedido (si no llena la gandola)", key=k("flete_carga_real"))
 
 try:
     cond = Condiciones(
         moneda=valor("moneda"), precio_por=valor("precio_por"), iva_incluido=valor("iva_incluido"),
-        iva_base=valor("iva_base"), pago=valor("pago"), pago_valor=valor("pago_valor"),
+        iva_base=valor("iva_base"), iva_sin_descuento=valor("iva_sin_descuento"), pago=valor("pago"), pago_valor=valor("pago_valor"),
         flete=valor("flete"), flete_moneda=valor("flete_moneda"), toneladas=valor("toneladas"),
         flete_carga_real=valor("flete_carga_real"), descuentos=leer_descuentos(valor("descuentos")),
     )
@@ -573,7 +577,9 @@ with d1.container(border=True):
             ("Precio por pieza", fmt.num(r.precio_pieza, 4)),
             *([(f"Se quita el IVA (÷ {fmt.num(1 + res.tasa_iva_efectiva, 4)})", fmt.num(r.lista_sin_iva, 4))] if cond.iva_incluido else []),
             (f"Descuentos sobre la base: {' → '.join(fmt.num(x) + '%' for x in descs) or 'ninguno'}", fmt.num(r.pieza_sin_iva, 4)),
-            (f"IVA {iva:g}%{' sobre el 10%' if cond.iva_base == '10' else ''}", "+ " + fmt.num(r.iva_pieza, 4)),
+            (f"IVA {iva:g}%{' sobre el 10%' if cond.iva_base == '10' else ''}"
+             + (f" sobre la base sin descuento ({fmt.num(r.lista_sin_iva, 4)})" if cond.iva_sin_descuento and r.factor_desc != 1 else ""),
+             "+ " + fmt.num(r.iva_pieza, 4)),
             (f"**Pieza con IVA ({mon})**", f"**{fmt.num(r.pieza_con_iva, 4)}**"),
             (f"Base a $ interno: {base_txt} (× {fmt.num(res.factor_base, 4)})", fmt.num(r.base_int, 4)),
             (f"IVA a $ interno: {'÷ interna' if cond.moneda == 'bs' else 'Bs a BCV'} (× {fmt.num(res.factor_iva, 4)})"

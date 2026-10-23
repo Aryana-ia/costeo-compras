@@ -13,7 +13,8 @@
       "flete_moneda": "usd",
       "toneladas": 32,
       "flete_carga_real": false,
-      "descuentos": []
+      "descuentos": [],
+      "iva_sin_descuento": false
     }
   },
   {
@@ -26,6 +27,25 @@
       "iva_base": "100",
       "pago": "monto",
       "pago_valor": 13000,
+      "flete": 0,
+      "flete_moneda": "usd",
+      "toneladas": 32,
+      "flete_carga_real": false,
+      "descuentos": [],
+      "iva_sin_descuento": false
+    }
+  },
+  {
+    "id": "aceros_laminados",
+    "nombre": "ACEROS LAMINADOS",
+    "condiciones": {
+      "moneda": "usd",
+      "precio_por": "pieza",
+      "iva_incluido": false,
+      "iva_base": "100",
+      "iva_sin_descuento": true,
+      "pago": "divisa",
+      "pago_valor": 0,
       "flete": 0,
       "flete_moneda": "usd",
       "toneladas": 32,
