@@ -1,0 +1,36 @@
+[
+  {
+    "id": "unicom",
+    "nombre": "UNICOM",
+    "condiciones": {
+      "moneda": "usd",
+      "precio_por": "pieza",
+      "iva_incluido": false,
+      "iva_base": "100",
+      "pago": "pct",
+      "pago_valor": 50,
+      "flete": 0,
+      "flete_moneda": "usd",
+      "toneladas": 32,
+      "flete_carga_real": false,
+      "descuentos": []
+    }
+  },
+  {
+    "id": "complejo",
+    "nombre": "COMPLEJO",
+    "condiciones": {
+      "moneda": "usd",
+      "precio_por": "pieza",
+      "iva_incluido": false,
+      "iva_base": "100",
+      "pago": "monto",
+      "pago_valor": 13000,
+      "flete": 0,
+      "flete_moneda": "usd",
+      "toneladas": 32,
+      "flete_carga_real": false,
+      "descuentos": []
+    }
+  }
+]

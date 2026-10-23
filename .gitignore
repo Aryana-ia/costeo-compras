@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.env
+.DS_Store
+
+# Secretos de Streamlit: nunca se suben
+.streamlit/secrets.toml
+
+# Datos del negocio que se cargan desde la app (se guardan localmente o en la rama "datos")
+data/lista_precios.csv
+data/historial.csv
