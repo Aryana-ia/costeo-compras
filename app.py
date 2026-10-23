@@ -6,13 +6,34 @@ La lógica de negocio vive en el paquete ``costeo`` (ver README.md).
 
 from __future__ import annotations
 
+import sys
 import uuid
 from datetime import date
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
-from costeo import __version__
+
+# --- Recarga del paquete tras una actualización ---------------------------------
+# Streamlit Cloud, al traer cambios de GitHub, vuelve a ejecutar app.py pero puede
+# conservar en memoria la versión vieja de los módulos de ``costeo`` (ImportError o
+# cálculos con código viejo). Se compara la fecha de modificación de los archivos y,
+# si cambiaron, se descartan los módulos para importarlos de nuevo.
+def _firma_paquete() -> tuple:
+    carpeta = Path(__file__).resolve().parent / "costeo"
+    return tuple(sorted((p.name, p.stat().st_mtime_ns) for p in carpeta.glob("*.py")))
+
+
+FIRMA_COSTEO = _firma_paquete()
+if "costeo" in sys.modules and getattr(sys.modules["costeo"], "_firma", None) != FIRMA_COSTEO:
+    for _modulo in [m for m in sys.modules if m == "costeo" or m.startswith("costeo.")]:
+        del sys.modules[_modulo]
+import costeo  # noqa: E402
+
+costeo._firma = FIRMA_COSTEO
+
+from costeo import __version__  # noqa: E402
 from costeo import formato as fmt
 from costeo.almacen import ARCH_HISTORIAL, ARCH_LISTA, Almacen, ConfigGitHub
 from costeo.calculo import calcular, describir_iva, describir_pago
@@ -37,6 +58,20 @@ COLORES_ACCION = {
 }
 
 ss = st.session_state
+
+
+# Los objetos guardados en la sesión (perfiles, condiciones, historial) pueden venir
+# de la versión anterior del paquete: se reconstruyen con las clases nuevas.
+if ss.get("_firma_costeo") != FIRMA_COSTEO and "almacen" in ss:
+    try:
+        ss.proveedores = [Proveedor.desde_dict(p.a_dict()) for p in ss.proveedores]
+        ss.conds = {i: Condiciones.desde_dict(c.a_dict()) for i, c in ss.conds.items()}
+        ss.almacen = Almacen(github=ConfigGitHub.desde_secrets(st.secrets))
+        ss.historial = Historial(ss.historial.df)
+    except Exception:  # noqa: BLE001 - si algo no se puede migrar, se arranca de cero
+        for _clave in list(ss.keys()):
+            del ss[_clave]
+ss._firma_costeo = FIRMA_COSTEO
 
 
 def md(texto) -> str:
