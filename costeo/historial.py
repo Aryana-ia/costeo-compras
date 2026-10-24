@@ -24,6 +24,7 @@ from .modelos import ErrorDeDatos, _num
 COLUMNAS = [
     "FECHA", "PROVEEDOR", "DESCRIPCION", "PRECIO", "COSTO_KG", "CANTIDAD", "MONEDA",
     "FACTURA", "RIF", "CONTACTO", "CONDICIONES", "DESCUENTO", "OBSERVACION", "TASA",
+    "COSTEO",  # identificador del costeo guardado desde la app (vacío si vino de un Excel)
 ]
 PLANTILLA = [
     "FECHA", "PROVEEDOR", "DESCRIPCION", "PRECIO UNITARIO", "COSTO KG", "CANTIDAD", "MONEDA",
@@ -82,6 +83,7 @@ def leer_historial(archivo) -> LecturaHistorial:
         "DESCUENTO": col(r"DESCUENTO"),
         "OBSERVACION": col(r"OBSERV|NOTA"),
         "TASA": col(r"TASA"),
+        "COSTEO": col(r"^COSTEO"),
     }
     faltan = [k for k in ("FECHA", "PROVEEDOR", "DESCRIPCION", "PRECIO") if c[k] < 0]
     if faltan:
@@ -127,6 +129,12 @@ class Historial:
         self.df = self.df.sort_values("FECHA", ascending=False, kind="stable")
         self._por_clave = {k: g for k, g in self.df.groupby("CLAVE", sort=False)}
 
+    def sin_costeo(self, costeo_id: str | None) -> "Historial":
+        """Historial sin las filas de un costeo (para no mostrar el costeo actual como «última compra»)."""
+        if not costeo_id or "COSTEO" not in self.df.columns:
+            return self
+        return Historial(self.df[self.df["COSTEO"].fillna("").astype(str) != costeo_id])
+
     def compras(self, descripcion: str) -> pd.DataFrame:
         return self._por_clave.get(normalizar(descripcion), self.df.iloc[0:0])
 
@@ -156,9 +164,9 @@ def plantilla_excel() -> bytes:
 
 def ejemplo() -> pd.DataFrame:
     filas = [
-        ["2026-09-18", "UNICOM", 'CABILLA 1/2" X 12 MTS', 10.52, 0.8818, 600, "$", "F-0012", "", "", "50% $ / 50% Bs BCV", 0, "Ejemplo", 198.4],
-        ["2026-08-02", "COMPLEJO", 'CABILLA 1/2" X 12 MTS', 10.95, 0.9179, 400, "$", "F-7741", "", "", "Monto en $ + Bs BCV", 0, "Ejemplo", 181.2],
-        ["2026-09-18", "UNICOM", 'CABILLA 3/8" X 12 MTS', 6.05, 0.9003, 900, "$", "F-0012", "", "", "50% $ / 50% Bs BCV", 0, "Ejemplo", 198.4],
+        ["2026-09-18", "UNICOM", 'CABILLA 1/2" X 12 MTS', 10.52, 0.8818, 600, "$", "F-0012", "", "", "50% $ / 50% Bs BCV", 0, "Ejemplo", 198.4, ""],
+        ["2026-08-02", "COMPLEJO", 'CABILLA 1/2" X 12 MTS', 10.95, 0.9179, 400, "$", "F-7741", "", "", "Monto en $ + Bs BCV", 0, "Ejemplo", 181.2, ""],
+        ["2026-09-18", "UNICOM", 'CABILLA 3/8" X 12 MTS', 6.05, 0.9003, 900, "$", "F-0012", "", "", "50% $ / 50% Bs BCV", 0, "Ejemplo", 198.4, ""],
     ]
     df = pd.DataFrame(filas, columns=COLUMNAS)
     df["CLAVE"] = df["DESCRIPCION"].map(normalizar)

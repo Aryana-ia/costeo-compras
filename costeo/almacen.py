@@ -38,6 +38,7 @@ TIMEOUT = 20
 ARCH_PROVEEDORES = "proveedores.json"
 ARCH_LISTA = "lista_precios.csv"
 ARCH_HISTORIAL = "historial.csv"
+ARCH_COSTEOS = "costeos.csv"
 
 
 @dataclass
@@ -181,7 +182,7 @@ class Almacen:
         if datos is None:
             return None, ""
         try:
-            return pd.read_csv(io.BytesIO(datos), dtype={"CODIGO": str, "FACTURA": str, "RIF": str, "CONTACTO": str}, keep_default_na=True), origen
+            return pd.read_csv(io.BytesIO(datos), dtype={"CODIGO": str, "FACTURA": str, "RIF": str, "CONTACTO": str, "COSTEO": str, "Factura / OC": str}, keep_default_na=True), origen
         except Exception as e:  # noqa: BLE001
             raise ErrorDeDatos(f"El archivo {nombre} está dañado: {e}") from e
 

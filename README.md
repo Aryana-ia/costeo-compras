@@ -144,6 +144,11 @@ Descarga la **plantilla** desde la app (barra lateral → Historial de compras).
 4. Agrega los productos con el buscador (cantidad y precio del proveedor) o pega las filas desde Excel.
 5. Revisa el resultado: semáforo, **Cómo se paga** y el detalle paso a paso de cada producto.
 6. Descarga la **imagen para WhatsApp** o el **Excel**.
+7. Escribe la **factura / OC** (opcional) y toca **Guardar costeo en el historial**.
+   - Cada producto queda registrado como una compra: fecha, proveedor, precio por pieza sin IVA, costo por kilo, cantidad, condiciones, tasa y factura.
+   - Desde ese momento aparece como **«última compra»** en los costeos siguientes.
+   - El detalle completo queda en **📚 Costeos guardados**, al final de la página, y se descarga en Excel.
+   - Si corriges algo y vuelves a guardar, el costeo se **actualiza**, no se duplica. Para registrar otra compra el mismo día con el mismo proveedor, usa **Guardar como costeo nuevo**.
 
 ---
 
@@ -182,6 +187,7 @@ Se abre en `http://localhost:8501`. En tu PC, todo lo que guardes queda en la ca
 | Perfiles de proveedores | `data/proveedores.json` | se pierde al reiniciar | rama `datos` del repo |
 | Lista de precios | `data/lista_precios.csv` | se pierde al reiniciar | rama `datos` del repo |
 | Historial | `data/historial.csv` | se pierde al reiniciar | rama `datos` del repo |
+| Costeos guardados | `data/costeos.csv` | se pierde al reiniciar | rama `datos` del repo |
 
 Streamlit Cloud borra el disco cada vez que la app se reinicia. Para que los datos persistan:
 
@@ -215,6 +221,7 @@ costeo-compras/
 │   ├── historial.py          # Lectura del historial y consulta de últimas compras
 │   ├── almacen.py            # Guardado local + sincronización opcional con GitHub
 │   ├── exportar.py           # Tabla, Excel e imagen PNG
+│   ├── registro.py           # Guardar un costeo en el historial y en costeos.csv
 │   └── formato.py            # Números 1.234,56, fechas dd/mm/aaaa, normalización
 ├── data/proveedores.json     # Perfiles iniciales (UNICOM, COMPLEJO)
 ├── assets/fonts/             # Fuentes DejaVu para la imagen (licencia incluida)

@@ -12,3 +12,4 @@ venv/
 # Datos del negocio que se cargan desde la app (se guardan localmente o en la rama "datos")
 data/lista_precios.csv
 data/historial.csv
+data/costeos.csv

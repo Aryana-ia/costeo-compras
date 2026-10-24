@@ -6,6 +6,7 @@ La lógica de negocio vive en el paquete ``costeo`` (ver README.md).
 
 from __future__ import annotations
 
+import io
 import sys
 import uuid
 from datetime import date
@@ -35,13 +36,14 @@ costeo._firma = FIRMA_COSTEO
 
 from costeo import __version__  # noqa: E402
 from costeo import formato as fmt
-from costeo.almacen import ARCH_HISTORIAL, ARCH_LISTA, Almacen, ConfigGitHub
+from costeo.almacen import ARCH_COSTEOS, ARCH_HISTORIAL, ARCH_LISTA, Almacen, ConfigGitHub
 from costeo.calculo import calcular, describir_iva, describir_pago
 from costeo.catalogo import ejemplo as catalogo_ejemplo
 from costeo.catalogo import leer_lista_precios, resumen
 from costeo.exportar import excel, imagen, tabla
 from costeo.historial import Historial, leer_historial, plantilla_excel
 from costeo.historial import ejemplo as historial_ejemplo
+from costeo.registro import filas_costeo, filas_historial, nuevo_id, reemplazar, resumen_costeos
 from costeo.modelos import (
     FORMAS_PAGO, IVA_BASE, IVA_DESCUENTO, MONEDAS, MONEDAS_FLETE, PRECIO_POR,
     Condiciones, ErrorDeDatos, Linea, Parametros, Proveedor,
@@ -218,13 +220,21 @@ with st.sidebar:
                                + ("…" if len(lh.filas_omitidas) > 12 else ""))
                 if lh.opcionales_faltantes:
                     st.caption("Columnas opcionales que no vinieron: " + ", ".join(lh.opcionales_faltantes))
+                # Los costeos guardados desde la app se conservan: el Excel solo reemplaza lo importado
+                propios = pd.DataFrame()
+                if not ss.historial_ejemplo and "COSTEO" in ss.historial.df.columns:
+                    h = ss.historial.df
+                    propios = h[h["COSTEO"].fillna("").astype(str) != ""].drop(columns="CLAVE", errors="ignore")
+                if len(propios):
+                    st.caption(f"Se conservan {len(propios)} compras guardadas desde la app; el Excel reemplaza solo las importadas.")
                 if st.button("Guardar historial", type="primary", key="btn_hist", disabled=df.empty):
+                    final = pd.concat([df.drop(columns="CLAVE"), propios], ignore_index=True)
                     try:
-                        msg = ss.almacen.guardar_tabla(ARCH_HISTORIAL, df.drop(columns="CLAVE"), f"Historial: {lh.archivo}")
-                        ss.mensajes.append(("success", f"Historial guardado ({len(df)} compras). {msg}"))
+                        msg = ss.almacen.guardar_tabla(ARCH_HISTORIAL, final, f"Historial: {lh.archivo}")
+                        ss.mensajes.append(("success", f"Historial guardado ({len(final)} compras). {msg}"))
                     except ErrorDeDatos as e:
                         ss.mensajes.append(("warning", str(e)))
-                    poner_historial(df, ejemplo=False)
+                    poner_historial(final, ejemplo=False)
                     st.rerun()
             except ErrorDeDatos as e:
                 st.error(str(e))
@@ -575,7 +585,13 @@ with k2.container(border=True):
             f"| **Gasto total en $ interno** | **$ {fmt.num(pl.gasto_int)}** |\n"))
         st.caption(f"Bolívares ÷ tasa interna {fmt.num(params.tasa_interna)}.")
 
-df_res = tabla(res, params, prov, cond, ss.historial)
+# Costeo de esta sesión (mismo proveedor y fecha): si ya se guardó, se actualiza en vez de duplicarse,
+# y sus filas no se muestran como «última compra» de sí mismo.
+clave_costeo = f"{prov.id}|{params.fecha.isoformat()}"
+costeo_id = ss.setdefault("costeos_sesion", {}).get(clave_costeo)
+hist = ss.historial.sin_costeo(costeo_id)
+
+df_res = tabla(res, params, prov, cond, hist)
 pct_cols = [c for c in df_res.columns if c.startswith("Dif.")]
 num_cols = [c for c in df_res.columns if df_res[c].dtype.kind in "fi" and c not in pct_cols]
 estilo = (
@@ -630,7 +646,7 @@ with d1.container(border=True):
         st.markdown(md("| Paso | Valor |\n|---|---:|\n" + "\n".join(f"| {a} | {b} |" for a, b in pasos)))
 with d2.container(border=True):
     st.markdown("**Historial de compra**" + (" · _ejemplo_" if ss.historial_ejemplo else ""))
-    ult = ss.historial.ultima(r.linea.descripcion)
+    ult = hist.ultima(r.linea.descripcion)
     if not ult:
         st.caption("No hay compras registradas de este producto.")
     else:
@@ -648,8 +664,8 @@ with d2.container(border=True):
             if isinstance(v, str) and v.strip():
                 datos.append((etiqueta, v))
         st.markdown(md("**Última compra**\n\n| Dato | Valor |\n|---|---:|\n" + "\n".join(f"| {a} | {b} |" for a, b in datos)))
-        pp = ss.historial.por_proveedor(r.linea.descripcion)
-        if len(ss.historial.compras(r.linea.descripcion)) > 1:
+        pp = hist.por_proveedor(r.linea.descripcion)
+        if len(hist.compras(r.linea.descripcion)) > 1:
             st.markdown("**Último precio de cada proveedor**")
             vista = pp[["PROVEEDOR", "FECHA", "PRECIO", "COSTO_KG", "CONDICIONES"]].copy()
             vista["FECHA"] = vista["FECHA"].map(fmt.fecha)
@@ -662,8 +678,8 @@ with d2.container(border=True):
 st.markdown("##### Compartir")
 nombre_base = f"costeo_{fmt.slug(prov.nombre)}_{params.fecha.isoformat()}"
 try:
-    png = imagen(res, params, prov, cond, ss.historial, autor)
-    xls = excel(res, params, prov, cond, ss.historial)
+    png = imagen(res, params, prov, cond, hist, autor)
+    xls = excel(res, params, prov, cond, hist)
 except Exception as e:  # noqa: BLE001
     st.error(f"No se pudieron generar los archivos: {e}")
     st.stop()
@@ -673,3 +689,74 @@ e2.download_button("📊 Descargar Excel", xls, f"{nombre_base}.xlsx",
                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch")
 with st.expander("Vista previa de la imagen"):
     st.image(png, width=420)
+
+# --- guardar en el historial ------------------------------------------------
+st.markdown("##### Guardar en el historial")
+validas = [r for r in res.lineas if r.tiene_costo and fmt.es_numero(r.linea.cantidad) and r.linea.cantidad > 0]
+s1, s2 = st.columns(2)
+factura = s1.text_input("Factura / OC (opcional)", key=f"factura_{clave_costeo}")
+observacion = s2.text_input("Observación (opcional)", key=f"obs_{clave_costeo}")
+st.caption(
+    f"Se registran {len(validas)} de {len(res.lineas)} productos (los que tienen costo y cantidad) como compra de "
+    f"**{prov.nombre}** del {fmt.fecha(params.fecha)}. Aparecerán como «última compra» en los próximos costeos."
+)
+
+
+def guardar_costeo(como_nuevo: bool = False) -> None:
+    cid = nuevo_id(prov, params) if (como_nuevo or not costeo_id) else costeo_id
+    nuevas_h = filas_historial(res, params, prov, cond, cid, factura, observacion)
+    nuevas_c = filas_costeo(res, params, prov, cond, cid, factura, observacion)
+    base_h = None if ss.historial_ejemplo else ss.historial.df
+    try:
+        costeos_prev, _ = ss.almacen.cargar_tabla(ARCH_COSTEOS)
+        hist_final = reemplazar(base_h, nuevas_h, cid)
+        costeos_final = reemplazar(costeos_prev, nuevas_c, cid)
+        msg = ss.almacen.guardar_tabla(ARCH_HISTORIAL, hist_final, f"Costeo {cid}")
+        ss.almacen.guardar_tabla(ARCH_COSTEOS, costeos_final, f"Costeo {cid} (detalle)")
+    except ErrorDeDatos as e:
+        st.error(f"No se pudo guardar el costeo: {e}")
+        return
+    poner_historial(hist_final, ejemplo=False)
+    ss.costeos_sesion[clave_costeo] = cid
+    ss.pop("costeos_df", None)
+    accion = "actualizado" if (costeo_id and not como_nuevo) else "guardado"
+    ss.mensajes.append(("success", f"Costeo {accion}: {len(nuevas_h)} productos de {prov.nombre} en el historial. {msg}"))
+    st.rerun()
+
+
+b_g1, b_g2 = st.columns(2)
+if costeo_id:
+    b_g1.button("💾 Actualizar el costeo guardado", type="primary", width="stretch", disabled=not validas, key="btn_guardar_costeo")
+    b_g2.button("Guardar como costeo nuevo", width="stretch", disabled=not validas, key="btn_guardar_nuevo")
+    st.caption(f"Este costeo ya está guardado ({costeo_id}). Si cambiaste algo, actualízalo; no se duplica.")
+else:
+    b_g1.button("💾 Guardar costeo en el historial", type="primary", width="stretch", disabled=not validas, key="btn_guardar_costeo")
+if ss.get("btn_guardar_costeo"):
+    guardar_costeo()
+if ss.get("btn_guardar_nuevo"):
+    guardar_costeo(como_nuevo=True)
+
+# --- costeos guardados --------------------------------------------------------
+with st.expander("📚 Costeos guardados"):
+    if "costeos_df" not in ss:
+        try:
+            ss.costeos_df, _ = ss.almacen.cargar_tabla(ARCH_COSTEOS)
+        except ErrorDeDatos as e:
+            st.error(str(e))
+            ss.costeos_df = None
+    todos = ss.costeos_df
+    resumen_c = resumen_costeos(todos)
+    if resumen_c.empty:
+        st.caption("Todavía no hay costeos guardados.")
+    else:
+        st.dataframe(resumen_c.drop(columns="COSTEO").assign(**{"Fecha pedido": resumen_c["Fecha pedido"].map(fmt.fecha)}),
+                     hide_index=True, width="stretch")
+        elegido = st.selectbox("Ver un costeo", resumen_c["COSTEO"], key="costeo_ver",
+                               format_func=lambda i: " · ".join(str(v) for v in resumen_c.set_index("COSTEO").loc[i, ["Fecha pedido", "Proveedor", "Guardado"]]))
+        detalle = todos[todos["COSTEO"].astype(str) == str(elegido)]
+        st.dataframe(detalle.drop(columns=["COSTEO"]), hide_index=True, width="stretch")
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="xlsxwriter") as w:
+            todos.to_excel(w, index=False, sheet_name="Costeos")
+        st.download_button("Descargar todos los costeos (Excel)", buf.getvalue(), "costeos_guardados.xlsx",
+                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_costeos")
