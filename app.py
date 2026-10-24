@@ -385,7 +385,13 @@ f4.text_input("Descuentos sobre la base %", key=k("descuentos"), placeholder="Ej
 d1, d2 = st.columns([2, 2])
 d1.selectbox("IVA con descuento o sin descuento", list(IVA_DESCUENTO), format_func=IVA_DESCUENTO.get, key=k("iva_sin_descuento"),
              help="ACEROS LAMINADOS: el descuento se aplica a la base, pero el IVA se cobra sobre la base completa (IVA full).")
-st.toggle("Repartir el flete sobre los kilos reales del pedido (si no llena la gandola)", key=k("flete_carga_real"))
+st.toggle("Cobrar la gandola completa aunque el pedido pese menos", key=k("flete_carga_real"),
+          help="Apagado (normal): el flete se cobra por kilo, flete ÷ toneladas de la gandola × peso de cada producto. "
+               "Encendido: si el pedido pesa menos que una gandola, el flete completo se reparte entre los kilos pedidos.")
+_tarifa = valor("flete") / (valor("toneladas") * 1000) if valor("toneladas") else 0
+if valor("flete"):
+    st.caption(md(f"Tarifa de flete: {fmt.num(valor('flete'))} ÷ {fmt.num(valor('toneladas') * 1000, 0)} kg = "
+                  f"**{fmt.num(_tarifa, 6)} por kilo** ({MONEDAS_FLETE[valor('flete_moneda')]}), que se multiplica por el peso de cada producto."))
 
 try:
     cond = Condiciones(

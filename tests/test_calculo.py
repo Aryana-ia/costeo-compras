@@ -147,10 +147,15 @@ def test_flete_en_bs_y_carga_real():
     assert res.totales.flete_asignado == pytest.approx(1000)
 
 
-def test_aviso_si_el_pedido_no_llena_la_gandola():
-    cond = Condiciones(moneda="usd", flete=1000)
-    res = calcular(params(), cond, [cabilla_media(cant=100)])
-    assert any("menos que una gandola" in a for a in res.avisos)
+@pytest.mark.parametrize("piezas,flete_total", [(3353, 375.0), (1676.5, 187.5)])  # ≈40 t y ≈20 t
+def test_flete_como_tarifa_por_kilo(piezas, flete_total):
+    """300 $ por gandola de 32 t = 0,009375 $/kg, cualquiera sea el peso del pedido."""
+    cond = Condiciones(moneda="usd", flete=300)
+    res = calcular(params(), cond, [Linea("X", piezas, 10, 11.93, 20, 20)])
+    assert res.flete_kg == pytest.approx(300 / 32000)
+    assert res.lineas[0].flete_pieza == pytest.approx(11.93 * 300 / 32000)
+    assert res.plan.flete_int == pytest.approx(flete_total, rel=1e-3)
+    assert res.plan.gasto_int == pytest.approx(res.totales.costo)  # el gasto total cuadra con las piezas
 
 
 # --------------------------------------------------------------------------- decisión

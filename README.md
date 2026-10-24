@@ -53,7 +53,7 @@ Todo se lleva a **dólares a tasa interna** (“$ interno”), que es la unidad 
 | 5a | Base a $ interno | Parte pagada en $ (o Bs a tasa interna): `× 1` · parte pagada en Bs a BCV: `× BCV ÷ interna` |
 | 5b | IVA a $ interno | Cotización en $: el IVA **siempre** se paga en Bs a BCV → `× BCV ÷ interna` |
 | 5c | Cotización en Bs | Base e IVA `÷ interna` |
-| 6 | Flete | `flete en $ interno ÷ kilos de reparto × peso de la pieza` (kilos de reparto: 32.000 por defecto, o los kilos reales del pedido) |
+| 6 | Flete (tarifa por kilo) | `flete de una gandola ÷ 32.000 kg × peso de la pieza`. Ej.: 300 $ ÷ 32.000 = 0,009375 $/kg → 40 t pagan 375 $, 20 t pagan 187,50 $ |
 | 7 | Costo | `costo pieza = base + IVA + flete` · `costo kilo = costo pieza ÷ peso` |
 | 8 | Precio estimado | `costo × 1,17` y `costo × 1,18` |
 | 9 | Decisión | P3 < costo+17 % → **SUBIR** · entre 17 % y 18 % → **REVISAR** · P3 ≥ costo+18 % → **MANTENER** |
@@ -267,7 +267,7 @@ Supuestos actuales, a confirmar:
 
 1. **COMPLEJO:** el monto de la gandola (ej. 31.500) es **sin IVA**. El monto en $ sale de la base, y el IVA se paga aparte en Bs a BCV.
 2. **Flete:** por defecto en $ y **sin IVA**. Se cambia por proveedor.
-3. **Flete con la gandola incompleta:** por defecto se divide entre 32 t. Si el flete se paga completo aunque el pedido no llene la gandola, activa *Repartir el flete sobre los kilos reales*. La app avisa cuando hay diferencia.
+3. **Flete:** se cobra como tarifa por kilo (flete ÷ 32 t × peso), pese lo que pese el pedido. Si alguna vez se paga la gandola completa aunque el pedido pese menos, se activa *Cobrar la gandola completa aunque el pedido pese menos*.
 
 ---
 

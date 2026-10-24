@@ -21,8 +21,10 @@ Pasos, idénticos para todos los proveedores
        - mixto (UNICOM 50/50, COMPLEJO monto fijo)  → parte en $ × 1 + resto × BCV ÷ interna
        - el IVA SIEMPRE se paga en Bs a tasa BCV     → × BCV ÷ interna
 
-6. Flete: monto de la gandola llevado a $ interno ÷ kilos de reparto
-   (32.000 kg por defecto, o los kilos reales del pedido) × peso de la pieza.
+6. Flete como TARIFA POR KILO: monto de una gandola en $ interno ÷ 32.000 kg
+   × peso de la pieza. Ej.: 300 $ ÷ 32.000 = 0,009375 $/kg → un pedido de 40 t
+   lleva 375 $ de flete y uno de 20 t, 187,50 $. (Opcional: cobrar la gandola
+   completa aunque el pedido pese menos, repartiéndola sobre los kilos reales.)
 7. Costo pieza = base + IVA (si se incluye en el costo) + flete.
    Costo kilo = costo pieza ÷ peso.
 8. Precio estimado = costo × (1 + 17 %) y × (1 + 18 %), que se compara con el P3:
@@ -242,20 +244,10 @@ def calcular(p: Parametros, cond: Condiciones, lineas: list[Linea]) -> Resultado
             bs_base=total_sin * (1 - porcion) * p.tasa_bcv,
             bs_iva=total_iva * p.tasa_bcv,
         )
-    plan.flete_int = flete_int
-    plan.gasto_int = tot.base_int + (tot.iva_int if p.iva_en_costo else 0.0) + flete_int
-
-    if not cond.flete_carga_real and flete_int > 0 and 0 < total_kg < kg_gandola * 0.98:
-        avisos.append(
-            f"El pedido pesa {_n(total_kg / 1000)} t, menos que una gandola de {_n(toneladas)} t: "
-            f"a los productos solo se les asigna {_n(tot.flete_asignado)} $ de {_n(flete_int)} $ de flete. "
-            "Si el flete se paga completo, activa «Repartir el flete sobre los kilos reales»."
-        )
-    if total_kg > kg_gandola * 1.001:
-        avisos.append(
-            f"El pedido pesa {_n(total_kg / 1000)} t, más de una gandola de {_n(toneladas)} t. "
-            "Si son varias gandolas, coloca el flete de una sola: se reparte por kilo."
-        )
+    # El flete del pedido es la tarifa por kilo × los kilos pedidos (lo mismo que suman los productos),
+    # no el monto fijo de una gandola: así el gasto total cuadra con el costo de las piezas.
+    plan.flete_int = tot.flete_asignado
+    plan.gasto_int = tot.base_int + (tot.iva_int if p.iva_en_costo else 0.0) + tot.flete_asignado
 
     return Resultado(
         lineas=res, totales=tot, plan=plan, factor_base=factor_base, factor_iva=factor_iva,
