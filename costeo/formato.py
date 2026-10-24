@@ -5,7 +5,15 @@ from __future__ import annotations
 import math
 import re
 import unicodedata
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
+
+ZONA = ZoneInfo("America/Caracas")
+
+
+def ahora() -> datetime:
+    """Hora de Venezuela (el servidor de Streamlit Cloud trabaja en UTC)."""
+    return datetime.now(ZONA)
 
 
 def es_numero(x) -> bool:

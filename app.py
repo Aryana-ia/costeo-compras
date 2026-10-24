@@ -43,7 +43,8 @@ from costeo.catalogo import leer_lista_precios, resumen
 from costeo.exportar import excel, imagen, tabla
 from costeo.historial import Historial, leer_historial, plantilla_excel
 from costeo.historial import ejemplo as historial_ejemplo
-from costeo.registro import filas_costeo, filas_historial, nuevo_id, reemplazar, resumen_costeos
+from costeo.registro import abrir_costeo, filas_costeo, filas_historial, nuevo_id, reemplazar, resumen_costeos
+from costeo.tasas import obtener_tasa_bcv
 from costeo.modelos import (
     FORMAS_PAGO, IVA_BASE, IVA_DESCUENTO, MONEDAS, MONEDAS_FLETE, PRECIO_POR,
     Condiciones, ErrorDeDatos, Linea, Parametros, Proveedor,
@@ -88,7 +89,7 @@ def iniciar() -> None:
     if "almacen" in ss:
         return
     ss.almacen = Almacen(github=ConfigGitHub.desde_secrets(st.secrets))
-    ss.mensajes = []
+    ss.setdefault("mensajes", [])
     try:
         ss.proveedores = ss.almacen.cargar_proveedores()
     except ErrorDeDatos as e:
@@ -96,10 +97,12 @@ def iniciar() -> None:
         ss.mensajes.append(("error", str(e)))
     if not ss.proveedores:
         ss.proveedores = [Proveedor("general", "Proveedor general")]
-    ss.prov_id = ss.proveedores[0].id
-    ss.conds = {}
-    ss.lineas = {}
-    ss.editor_v = {}
+    # Al recargar se conserva lo que se está trabajando (condiciones y productos en pantalla)
+    if ss.get("prov_id") not in [p.id for p in ss.proveedores]:
+        ss.prov_id = ss.proveedores[0].id
+    ss.setdefault("conds", {})
+    ss.setdefault("lineas", {})
+    ss.setdefault("editor_v", {})
 
     try:
         cat, origen = ss.almacen.cargar_tabla(ARCH_LISTA)
@@ -148,22 +151,65 @@ iniciar()
 # =============================================================================
 # Barra lateral: tasas, márgenes y bases de datos
 # =============================================================================
+@st.cache_data(ttl=1800, show_spinner=False)
+def tasa_bcv_en_linea():
+    """Consulta la tasa BCV (se guarda 30 minutos para no consultar en cada clic)."""
+    return obtener_tasa_bcv()
+
+
+def cb_traer_bcv(forzar: bool = True) -> None:
+    if forzar:
+        tasa_bcv_en_linea.clear()
+    try:
+        t = tasa_bcv_en_linea()
+    except ErrorDeDatos as e:
+        ss.tasa_info = {"error": str(e)}
+        return
+    ss.bcv = round(t.valor, 4)
+    ss.tasa_info = {"valor": t.valor, "fecha": t.fecha_valor, "fuente": t.fuente}
+
+
+# Valores iniciales de la barra lateral (se fijan una vez para poder cambiarlos al reabrir un costeo)
+for _k, _v in {"fecha": fmt.ahora().date(), "bcv": None, "interna": None, "iva": 16.0, "m_min": 17.0, "m_obj": 18.0,
+               "iva_costo": True, "autor": "Ariana G. Romero Rodríguez"}.items():
+    ss.setdefault(_k, _v)
+if "tasa_info" not in ss and ss.bcv is None:   # al abrir la app se trae la tasa del día una sola vez
+    with st.spinner("Consultando la tasa BCV…"):
+        cb_traer_bcv(forzar=False)
+
 with st.sidebar:
     st.header("Fecha y tasas")
-    fecha = st.date_input("Fecha del pedido", value=date.today(), format="DD/MM/YYYY", key="fecha")
-    bcv = st.number_input("Tasa BCV (Bs/$)", min_value=0.0, value=None, step=0.01, format="%.4f", key="bcv", placeholder="Ej. 210,50")
-    interna = st.number_input("Tasa interna (Bs/$)", min_value=0.0, value=None, step=0.01, format="%.4f", key="interna", placeholder="Ej. 285,00")
-    iva = st.number_input("IVA %", min_value=0.0, value=16.0, step=0.5, key="iva")
+    fecha = st.date_input("Fecha del pedido", format="DD/MM/YYYY", key="fecha")
+    tb1, tb2 = st.columns([3, 1], vertical_alignment="bottom")
+    bcv = tb1.number_input("Tasa BCV (Bs/$)", min_value=0.0, step=0.01, format="%.4f", key="bcv", placeholder="Ej. 210,50")
+    tb2.button("🔄", key="btn_bcv", on_click=cb_traer_bcv, help="Traer la tasa oficial del día desde la página del BCV")
+    info = ss.get("tasa_info") or {}
+    if info.get("error"):
+        st.warning(info["error"])
+    elif info.get("valor"):
+        fv = info.get("fecha")
+        st.caption(f"Tasa BCV {fmt.num(info['valor'], 4)} · fecha valor {fmt.fecha(fv) if fv else '—'} · {info['fuente']}")
+        if fv and fv != fecha:
+            st.caption(f"⚠️ La fecha valor ({fmt.fecha(fv)}) no es la fecha del pedido ({fmt.fecha(fecha)}). Revisa que la tasa corresponda.")
+    interna = st.number_input("Tasa interna (Bs/$)", min_value=0.0, step=0.01, format="%.4f", key="interna", placeholder="Ej. 285,00")
+    iva = st.number_input("IVA %", min_value=0.0, step=0.5, key="iva")
     c1, c2 = st.columns(2)
-    m_min = c1.number_input("Margen mínimo %", min_value=0.0, value=17.0, step=0.5, key="m_min")
-    m_obj = c2.number_input("Margen objetivo %", min_value=0.0, value=18.0, step=0.5, key="m_obj")
-    iva_costo = st.toggle("Incluir el IVA en el costo", value=True, key="iva_costo")
+    m_min = c1.number_input("Margen mínimo %", min_value=0.0, step=0.5, key="m_min")
+    m_obj = c2.number_input("Margen objetivo %", min_value=0.0, step=0.5, key="m_obj")
+    iva_costo = st.toggle("Incluir el IVA en el costo", key="iva_costo")
     if bcv and interna:
         st.caption(f"BCV ÷ interna = **{fmt.num(bcv / interna, 4)}** · diferencial {fmt.pct(bcv / interna - 1)}")
-    autor = st.text_input("Elaborado por", value="Ariana G. Romero Rodríguez", key="autor")
+    autor = st.text_input("Elaborado por", key="autor")
 
     st.divider()
     st.header("Bases de datos")
+    def cb_recargar() -> None:
+        """Vuelve a leer perfiles, lista, historial y costeos (por ejemplo, lo guardado desde otro equipo)."""
+        for clave in ("almacen", "costeos_df"):
+            ss.pop(clave, None)
+
+    st.button("🔄 Recargar datos guardados", key="btn_recargar", on_click=cb_recargar, width="stretch",
+              help="Trae lo último guardado desde cualquier equipo (laptop, celular).")
     st.caption(("🔄 Sincronizado con GitHub" if ss.almacen.sincroniza else "💾 Guardado en este equipo")
                + " · " + ("los datos persisten" if ss.almacen.sincroniza else "en Streamlit Cloud se borra al reiniciar (ver README)"))
 
@@ -205,7 +251,15 @@ with st.sidebar:
             st.warning("Usando un historial de ejemplo.")
         else:
             st.success(f"{len(ss.historial.df):,} compras".replace(",", "."))
-        st.download_button("Descargar plantilla", plantilla_excel(), "plantilla_historial_compras.xlsx", key="dl_tpl")
+        if not ss.historial_ejemplo and len(ss.historial.df):
+            _hbuf = io.BytesIO()
+            _hdf = ss.historial.df.drop(columns="CLAVE", errors="ignore").sort_values("FECHA", ascending=False)
+            with pd.ExcelWriter(_hbuf, engine="xlsxwriter") as _w:
+                _hdf.to_excel(_w, index=False, sheet_name="HISTORIAL")
+            st.download_button("⬇️ Descargar historial guardado", _hbuf.getvalue(), "historial_compras.xlsx", key="dl_hist",
+                               type="primary", width="stretch")
+        st.download_button("Descargar plantilla vacía (para cargar compras viejas)", plantilla_excel(),
+                           "plantilla_historial_compras.xlsx", key="dl_tpl", width="stretch")
         archivo_h = st.file_uploader("Excel del historial", type=["xlsx", "xls", "xlsm", "csv"], key="up_hist")
         if archivo_h is not None:
             try:
@@ -249,520 +303,603 @@ for tipo, texto in ss.mensajes:
     getattr(st, tipo)(md(texto))
 ss.mensajes = []
 
-# =============================================================================
-# Proveedor y forma de pago
-# =============================================================================
-st.subheader("1 · Proveedor y forma de pago")
-prov = proveedor()
-ids = [p.id for p in ss.proveedores]
-if ss.get("sel_prov") not in ids:
-    ss.sel_prov = prov.id
-
-
-# Las acciones que cambian widgets van en callbacks: corren antes de dibujar la página.
-def cb_cambiar_proveedor() -> None:
-    ss.prov_id = ss.sel_prov
-
-
-def cb_crear_proveedor() -> None:
-    nombre = ss.get("nombre_prov", "").strip().upper()
-    if not nombre:
-        return
-    p = Proveedor(f"p_{uuid.uuid4().hex[:8]}", nombre, Condiciones.desde_dict(proveedor().condiciones.a_dict()))
-    ss.proveedores.append(p)
-    ss.prov_id = ss.sel_prov = p.id
-    ss.nombre_prov = ""
-    guardar_perfiles()
-
-
-def cb_renombrar_proveedor() -> None:
-    nombre = ss.get("nombre_prov", "").strip().upper()
-    if nombre:
-        proveedor().nombre = nombre
-        ss.nombre_prov = ""
-        guardar_perfiles()
-
-
-def cb_eliminar_proveedor() -> None:
-    actual = proveedor()
-    if len(ss.proveedores) < 2:
-        return
-    ss.proveedores = [p for p in ss.proveedores if p.id != actual.id]
-    ss.conds.pop(actual.id, None)
-    ss.lineas.pop(actual.id, None)
-    ss.prov_id = ss.sel_prov = ss.proveedores[0].id
-    guardar_perfiles()
-
-
-c_sel, c_nuevo, c_borrar = st.columns([3, 1, 1], vertical_alignment="bottom")
-c_sel.selectbox("Proveedor", ids, format_func=lambda i: next(p.nombre for p in ss.proveedores if p.id == i),
-                key="sel_prov", on_change=cb_cambiar_proveedor)
-
-with c_nuevo.popover("Nuevo / renombrar", width="stretch"):
-    st.text_input("Nombre", key="nombre_prov")
-    hay_nombre = bool(ss.get("nombre_prov", "").strip())
-    st.button("Crear proveedor", disabled=not hay_nombre, key="btn_crear", on_click=cb_crear_proveedor,
-              help="Se crea con las mismas condiciones del proveedor actual; luego las ajustas.")
-    st.button(f"Renombrar {prov.nombre}", disabled=not hay_nombre, key="btn_renombrar", on_click=cb_renombrar_proveedor)
-
-with c_borrar.popover("Eliminar", width="stretch"):
-    st.write(f"¿Eliminar a **{prov.nombre}** y su perfil?")
-    st.button("Sí, eliminar", type="primary", disabled=len(ss.proveedores) < 2, key="btn_borrar", on_click=cb_eliminar_proveedor)
-    if len(ss.proveedores) < 2:
-        st.caption("Debe quedar al menos un proveedor.")
-
-pid = prov.id
-k = lambda campo: f"c_{pid}_{campo}"  # noqa: E731 - clave de widget por proveedor
-
-
-def valores_widgets(c: Condiciones) -> dict:
-    """Condiciones → valores en el formato que usan los widgets."""
-    return {
-        "moneda": c.moneda, "precio_por": c.precio_por, "iva_incluido": c.iva_incluido, "iva_base": c.iva_base,
-        "iva_sin_descuento": c.iva_sin_descuento,
-        "pago": c.pago, "pago_valor": float(c.pago_valor), "flete": float(c.flete), "flete_moneda": c.flete_moneda,
-        "toneladas": float(c.toneladas), "flete_carga_real": c.flete_carga_real,
-        "descuentos": "; ".join(fmt.num(d).rstrip("0").rstrip(",") for d in c.descuentos),
-    }
-
-
-def cargar_widgets(c: Condiciones) -> None:
-    """Pone todas las condiciones en los widgets de este proveedor (pisa lo que haya)."""
-    for campo, v in valores_widgets(c).items():
-        ss[k(campo)] = v
-
-
-# Streamlit descarta el estado de un widget cuando deja de dibujarse (por ejemplo el
-# "% pagado en dólares" si la forma de pago no lo usa, o todos al cambiar de proveedor):
-# la clave desaparece o, al volver a dibujarse, el widget vuelve a su valor por defecto.
-# Solución documentada: reasignar cada clave en cada corrida (así queda como valor
-# propio y no como estado de widget) y restaurar las que falten desde lo último guardado.
-GUARDADAS = valores_widgets(ss.conds.get(pid, prov.condiciones))
-for _campo, _valor in GUARDADAS.items():
-    ss[k(_campo)] = ss[k(_campo)] if k(_campo) in ss else _valor
-
-
-def valor(campo: str):
-    """Valor actual del campo; si su widget no se dibujó en esta corrida, el último guardado."""
-    return ss.get(k(campo), GUARDADAS[campo])
-
-
-def leer_descuentos(texto: str) -> list[float]:
-    vals = []
-    for parte in str(texto).replace("+", ";").split(";"):
-        parte = parte.strip().replace("%", "")
-        if parte:
-            try:
-                vals.append(float(parte.replace(",", ".")))
-            except ValueError:
-                st.error(f"Descuento no válido: «{parte}». Escribe números separados por punto y coma, por ejemplo: 3; 2")
-    return vals
-
-
-g1, g2, g3, g4 = st.columns(4)
-g1.selectbox("Moneda de la cotización", list(MONEDAS), format_func=MONEDAS.get, key=k("moneda"))
-g2.selectbox("Precio cotizado por", list(PRECIO_POR), format_func=PRECIO_POR.get, key=k("precio_por"))
-g3.selectbox("¿El precio incluye IVA?", [False, True], format_func=lambda v: "Sí, viene con IVA" if v else "No, viene sin IVA", key=k("iva_incluido"))
-g4.selectbox("IVA calculado sobre", list(IVA_BASE), format_func=IVA_BASE.get, key=k("iva_base"))
-
-if valor("moneda") == "usd":
-    h1, h2 = st.columns(2)
-    h1.selectbox("Cómo se paga la base", list(FORMAS_PAGO), format_func=FORMAS_PAGO.get, key=k("pago"))
-    if valor("pago") == "pct":
-        h2.number_input("% pagado en dólares", min_value=0.0, max_value=100.0, step=5.0, key=k("pago_valor"))
-    elif valor("pago") == "monto":
-        h2.number_input("Monto pagado en dólares ($)", min_value=0.0, step=500.0, key=k("pago_valor"),
-                        help="Ejemplo COMPLEJO: si la gandola cuesta 31.500 y 13.000 se pagan en $, escribe 13000. El resto se paga en Bs a BCV.")
-    st.caption(md("El IVA de una cotización en dólares se paga siempre en Bs a tasa BCV: para el costo se lleva a $ con × BCV ÷ interna."))
-else:
-    st.caption("Cotización en bolívares: la base y el IVA se dividen entre la tasa interna.")
-
-f1, f2, f3, f4 = st.columns(4)
-f1.number_input("Flete por gandola", min_value=0.0, step=50.0, key=k("flete"))
-f2.selectbox("Moneda del flete", list(MONEDAS_FLETE), format_func=MONEDAS_FLETE.get, key=k("flete_moneda"))
-f3.number_input("Toneladas por gandola", min_value=1.0, step=1.0, key=k("toneladas"))
-f4.text_input("Descuentos sobre la base %", key=k("descuentos"), placeholder="Ej. 3; 2", help="En cascada: 3; 2 = 3% y luego 2% sobre lo que queda.")
-d1, d2 = st.columns([2, 2])
-d1.selectbox("IVA con descuento o sin descuento", list(IVA_DESCUENTO), format_func=IVA_DESCUENTO.get, key=k("iva_sin_descuento"),
-             help="ACEROS LAMINADOS: el descuento se aplica a la base, pero el IVA se cobra sobre la base completa (IVA full).")
-st.toggle("Cobrar la gandola completa aunque el pedido pese menos", key=k("flete_carga_real"),
-          help="Apagado (normal): el flete se cobra por kilo, flete ÷ toneladas de la gandola × peso de cada producto. "
-               "Encendido: si el pedido pesa menos que una gandola, el flete completo se reparte entre los kilos pedidos.")
-_tarifa = valor("flete") / (valor("toneladas") * 1000) if valor("toneladas") else 0
-if valor("flete"):
-    st.caption(md(f"Tarifa de flete: {fmt.num(valor('flete'))} ÷ {fmt.num(valor('toneladas') * 1000, 0)} kg = "
-                  f"**{fmt.num(_tarifa, 6)} por kilo** ({MONEDAS_FLETE[valor('flete_moneda')]}), que se multiplica por el peso de cada producto."))
-
-try:
-    cond = Condiciones(
-        moneda=valor("moneda"), precio_por=valor("precio_por"), iva_incluido=valor("iva_incluido"),
-        iva_base=valor("iva_base"), iva_sin_descuento=valor("iva_sin_descuento"), pago=valor("pago"), pago_valor=valor("pago_valor"),
-        flete=valor("flete"), flete_moneda=valor("flete_moneda"), toneladas=valor("toneladas"),
-        flete_carga_real=valor("flete_carga_real"), descuentos=leer_descuentos(valor("descuentos")),
-    )
-except ErrorDeDatos as e:
-    st.error(str(e))
-    st.stop()
-ss.conds[pid] = cond
-
-def cb_guardar_perfil() -> None:
-    p = proveedor()
-    p.condiciones = Condiciones.desde_dict(ss.conds[p.id].a_dict())
-    guardar_perfiles()
-
-
-def cb_volver_perfil() -> None:
-    p = proveedor()
-    ss.conds.pop(p.id, None)
-    cargar_widgets(p.condiciones)
-
-
-if cond.clave() != prov.condiciones.clave():
-    w1, w2, w3 = st.columns([4, 1, 1], vertical_alignment="center")
-    w1.warning(f"Condiciones cambiadas **solo para esta cotización**. El perfil de {prov.nombre} sigue igual.")
-    w2.button("Guardar en el perfil", type="primary", width="stretch", key="btn_guardar_perfil", on_click=cb_guardar_perfil)
-    w3.button("Volver al perfil", width="stretch", key="btn_volver_perfil", on_click=cb_volver_perfil)
-else:
-    st.caption(f"Usando las condiciones guardadas de **{prov.nombre}**. Si cambias algo, aplica solo a esta cotización hasta que lo guardes en el perfil.")
 
 # =============================================================================
-# Productos
+# Costeos guardados (pestaña propia: se ve aunque la pantalla de costeo esté vacía)
 # =============================================================================
-st.subheader("2 · Productos del pedido")
-if pid not in ss.lineas:
-    ss.lineas[pid] = pd.DataFrame(columns=COLS_LINEAS).astype({c: "float" for c in COLS_LINEAS[1:]} | {"Producto": "object"})
-    ss.editor_v[pid] = 0
-
-
-def datos_catalogo(desc: str):
-    return ss.cat_idx.get(fmt.normalizar(desc))
-
-
-def reemplazar_lineas(df: pd.DataFrame) -> None:
-    ss.lineas[pid] = df.reset_index(drop=True)
-    ss.editor_v[pid] = ss.editor_v.get(pid, 0) + 1
-
-
-b1, b2, b3, b4 = st.columns([4, 1.2, 1.2, 1], vertical_alignment="bottom")
-buscado = b1.selectbox("Buscar en la lista de precios", ss.cat_opciones, index=None, key=f"busca_{pid}_{ss.editor_v[pid]}",
-                       placeholder="Escribe parte del nombre, por ejemplo: cab 1/2")
-cant_n = b2.number_input("Cantidad de piezas", min_value=0.0, value=None, step=1.0, key=f"cant_{pid}_{ss.editor_v[pid]}")
-precio_n = b3.number_input("Precio proveedor", min_value=0.0, value=None, step=0.01, format="%.4f", key=f"precio_{pid}_{ss.editor_v[pid]}")
-if buscado:
-    r = datos_catalogo(buscado)
-    st.caption(f"{buscado}: {fmt.num(r.PESO)} kg · P3 FERRE {fmt.num(r.P3_FERRE)} · MCY {fmt.num(r.P3_MCY)}")
-
-if b4.button("Agregar", type="primary", disabled=not buscado, width="stretch", key="btn_agregar"):
-    r = datos_catalogo(buscado)
-    fila = {"Producto": r.DESCRIPCION, "Cantidad": cant_n, "Precio": precio_n, "Desc. extra %": 0.0,
-            "Peso kg": r.PESO, "P3 FERRE": r.P3_FERRE, "P3 MCY": r.P3_MCY}
-    base = ss.get(f"_ultimo_editado_{pid}", ss.lineas[pid])
-    reemplazar_lineas(pd.concat([base, pd.DataFrame([fila])], ignore_index=True))
-    st.rerun()
-
-etiqueta_precio = f"Precio {'Bs' if cond.moneda == 'bs' else '$'} {'c/IVA' if cond.iva_incluido else 's/IVA'} / {PRECIO_POR[cond.precio_por].lower()}"
-editado = st.data_editor(
-    ss.lineas[pid],
-    key=f"ed_{pid}_{ss.editor_v[pid]}",
-    num_rows="dynamic",
-    width="stretch",
-    hide_index=True,
-    column_config={
-        "Producto": st.column_config.TextColumn("Producto", width="large", required=True),
-        "Cantidad": st.column_config.NumberColumn("Cant. piezas", min_value=0, format="%.2f"),
-        "Precio": st.column_config.NumberColumn(etiqueta_precio, min_value=0, format="%.4f"),
-        "Desc. extra %": st.column_config.NumberColumn("Desc. extra %", min_value=0, max_value=100, format="%.2f"),
-        "Peso kg": st.column_config.NumberColumn("Peso pieza kg", min_value=0, format="%.4f"),
-        "P3 FERRE": st.column_config.NumberColumn("P3 FERRE $", min_value=0, format="%.4f"),
-        "P3 MCY": st.column_config.NumberColumn("P3 MCY $", min_value=0, format="%.4f"),
-    },
-)
-ss[f"_ultimo_editado_{pid}"] = editado
-
-# Completar peso y P3 vacíos desde la lista (sin pisar lo escrito a mano)
-completados = 0
-lineas: list[Linea] = []
-for fila in editado.itertuples(index=False):
-    desc = str(fila.Producto or "").strip()
-    if not desc or desc.lower() == "nan":
-        continue
-    peso, p3f, p3m = fila[4], fila[5], fila[6]
-    r = datos_catalogo(desc)
-    if r is not None:
-        if not (peso and peso > 0):
-            peso, completados = r.PESO, completados + 1
-        if not (p3f and p3f > 0):
-            p3f = r.P3_FERRE
-        if not (p3m and p3m > 0):
-            p3m = r.P3_MCY
-    lineas.append(Linea(desc, fila.Cantidad if pd.notna(fila.Cantidad) else float("nan"),
-                        fila.Precio if pd.notna(fila.Precio) else float("nan"),
-                        peso if pd.notna(peso) else float("nan"),
-                        p3f if pd.notna(p3f) else 0.0, p3m if pd.notna(p3m) else 0.0,
-                        fila[3] if pd.notna(fila[3]) else 0.0))
-
-a1, a2, a3 = st.columns([2, 2, 3])
-if a1.button("Actualizar peso y P3 desde la lista", width="stretch", key="btn_refrescar"):
-    df = editado.copy()
-    for i, desc in df["Producto"].items():
-        r = datos_catalogo(str(desc or ""))
-        if r is not None:
-            df.loc[i, ["Peso kg", "P3 FERRE", "P3 MCY"]] = [r.PESO, r.P3_FERRE, r.P3_MCY]
-    reemplazar_lineas(df)
-    st.rerun()
-if a2.button("Vaciar productos", width="stretch", key="btn_vaciar"):
-    reemplazar_lineas(ss.lineas[pid].iloc[0:0])
-    st.rerun()
-a3.caption("Puedes pegar filas copiadas de Excel directo en la tabla. Si el producto está en la lista, el peso y el P3 vacíos se completan solos."
-           + (f" Se completaron {completados} pesos desde la lista." if completados else ""))
-
-def cb_ejemplo() -> None:
-    ej = [('CABILLA 1/2" X 12 MTS', 1400, 11.20), ('CABILLA 3/8" X 12 MTS', 1600, 6.30), ('CABILLA 5/8" X 12 MTS', 200, 17.60)]
-    filas = []
-    for d, c, pr in ej:
-        r = datos_catalogo(d)
-        if r is not None:
-            filas.append({"Producto": d, "Cantidad": c, "Precio": pr, "Desc. extra %": 0.0,
-                          "Peso kg": r.PESO, "P3 FERRE": r.P3_FERRE, "P3 MCY": r.P3_MCY})
-    reemplazar_lineas(pd.DataFrame(filas, columns=COLS_LINEAS))
-    if not ss.get("bcv"):
-        ss.bcv, ss.interna = 210.5, 285.0
-
-
-if ss.catalogo_ejemplo and not lineas:
-    st.button("Cargar un ejemplo para probar (tasas y precios de ejemplo)", key="btn_ejemplo", on_click=cb_ejemplo)
-
-# =============================================================================
-# Resultado
-# =============================================================================
-st.subheader("3 · Resultado")
-params = Parametros(fecha=fecha, tasa_bcv=bcv or 0.0, tasa_interna=interna or 0.0, iva=iva,
-                    margen_min=m_min, margen_obj=m_obj, iva_en_costo=iva_costo)
-if not lineas:
-    st.info("Agrega productos para ver el costeo.")
-    st.stop()
-
-res = calcular(params, cond, lineas)
-for e in res.errores:
-    st.error(e)
-if res.errores:
-    st.stop()
-for a in res.avisos:
-    st.warning(md(a))
-
-mon = "Bs" if cond.moneda == "bs" else "$"
-cnt = res.conteo()
-m1, m2, m3, m4, m5 = st.columns(5)
-m1.metric("🔴 Subir", cnt["SUBIR"])
-m2.metric("🟡 Revisar", cnt["REVISAR"])
-m3.metric("🟢 Mantener", cnt["MANTENER"])
-m4.metric(f"Kilos totales · {fmt.num(res.totales.kg / (cond.toneladas * 1000))} gandolas", fmt.num(res.totales.kg))
-m5.metric("Gasto total $ interno", fmt.num(res.plan.gasto_int),
-          help=f"{fmt.num(res.plan.gasto_int / res.totales.kg, 4)} $ por kilo" if res.totales.kg else None)
-
-t, pl = res.totales, res.plan
-k1, k2 = st.columns(2)
-with k1.container(border=True):
-    st.markdown("**Cotización del proveedor**")
-    st.markdown(md(
-        f"| Concepto | Monto |\n|---|---:|\n"
-        f"| Total sin IVA | {mon} {fmt.num(t.sin_iva)} |\n"
-        f"| IVA {'(sobre el 10%)' if cond.iva_base == '10' else ''} | {mon} {fmt.num(t.iva)} |\n"
-        f"| **Total con IVA** | **{mon} {fmt.num(t.con_iva)}** |\n"
-        f"| Condiciones | {describir_iva(cond, iva)} |\n"
-        + (f"| Descuentos | {' + '.join(fmt.num(x) + '%' for x in cond.descuentos)} |\n" if cond.descuentos else "")
-    ))
-with k2.container(border=True):
-    st.markdown("**Cómo se paga**")
-    if cond.moneda == "usd":
-        st.markdown(md(
-            f"| Concepto | Monto |\n|---|---:|\n"
-            f"| Base en dólares | $ {fmt.num(pl.usd)} |\n"
-            f"| Base en Bs a BCV | Bs {fmt.num(pl.bs_base)} <br><small>$ {fmt.num(pl.usd_base_en_bs)} × {fmt.num(params.tasa_bcv)}</small> |\n"
-            f"| IVA en Bs a BCV | Bs {fmt.num(pl.bs_iva)} <br><small>$ {fmt.num(pl.usd_iva)} × {fmt.num(params.tasa_bcv)}</small> |\n"
-            f"| **Total en bolívares** | **Bs {fmt.num(pl.bs_total)}** |\n"
-            f"| Flete | $ int. {fmt.num(pl.flete_int)} |\n"
-            f"| **Gasto total en $ interno** | **$ {fmt.num(pl.gasto_int)}** |\n"), unsafe_allow_html=True)
-        st.caption(md(f"{describir_pago(cond)}. Los Bs se llevan a $ interno dividiendo entre {fmt.num(params.tasa_interna)}."))
-    else:
-        st.markdown(md(
-            f"| Concepto | Monto |\n|---|---:|\n| Base | Bs {fmt.num(pl.bs_base)} |\n| IVA | Bs {fmt.num(pl.bs_iva)} |\n"
-            f"| **Total en bolívares** | **Bs {fmt.num(pl.bs_total)}** |\n| Flete | $ int. {fmt.num(pl.flete_int)} |\n"
-            f"| **Gasto total en $ interno** | **$ {fmt.num(pl.gasto_int)}** |\n"))
-        st.caption(f"Bolívares ÷ tasa interna {fmt.num(params.tasa_interna)}.")
-
-# Costeo de esta sesión (mismo proveedor y fecha): si ya se guardó, se actualiza en vez de duplicarse,
-# y sus filas no se muestran como «última compra» de sí mismo.
-clave_costeo = f"{prov.id}|{params.fecha.isoformat()}"
-costeo_id = ss.setdefault("costeos_sesion", {}).get(clave_costeo)
-hist = ss.historial.sin_costeo(costeo_id)
-
-df_res = tabla(res, params, prov, cond, hist)
-pct_cols = [c for c in df_res.columns if c.startswith("Dif.")]
-num_cols = [c for c in df_res.columns if df_res[c].dtype.kind in "fi" and c not in pct_cols]
-estilo = (
-    df_res.style
-    .format(precision=4, subset=num_cols, na_rep="—", thousands=".", decimal=",")
-    .format(lambda v: fmt.pct(v), subset=pct_cols)
-    .map(lambda v: COLORES_ACCION.get(v, ""), subset=["Acción"])
-    .map(lambda v: "color:#B91C1C" if isinstance(v, float) and v < 0 else "color:#15803D", subset=pct_cols)
-)
-st.dataframe(estilo, width="stretch", hide_index=True, height=min(80 + 36 * len(df_res), 520))
-
-# --- detalle de un producto -----------------------------------------------
-st.markdown("##### Detalle por producto")
-nombres = [r.linea.descripcion for r in res.lineas]
-sel = st.selectbox("Producto", range(len(nombres)), format_func=lambda i: nombres[i], key="detalle", label_visibility="collapsed")
-r = res.lineas[sel]
-d1, d2 = st.columns(2)
-with d1.container(border=True):
-    if not r.tiene_costo:
-        st.error(f"{r.linea.descripcion}: {r.error}")
-    else:
-        ln = r.linea
-        descs = [*cond.descuentos, *([ln.desc_extra] if ln.desc_extra else [])]
-        if res.porcion_divisa is None:
-            base_txt = f"÷ interna {fmt.num(params.tasa_interna)}"
-        elif res.porcion_divisa == 1:
-            base_txt = "pagada en $ (× 1)"
-        elif res.porcion_divisa == 0:
-            base_txt = "Bs a BCV (× BCV ÷ interna)"
-        else:
-            base_txt = f"{fmt.num(res.porcion_divisa * 100, 1)}% en $ + {fmt.num((1 - res.porcion_divisa) * 100, 1)}% Bs a BCV"
-        pasos = [
-            (f"Precio cotizado por {PRECIO_POR[cond.precio_por].lower()} ({mon})", fmt.num(ln.precio, 4)),
-            ("Precio por pieza", fmt.num(r.precio_pieza, 4)),
-            *([(f"Se quita el IVA (÷ {fmt.num(1 + res.tasa_iva_efectiva, 4)})", fmt.num(r.lista_sin_iva, 4))] if cond.iva_incluido else []),
-            (f"Descuentos sobre la base: {' → '.join(fmt.num(x) + '%' for x in descs) or 'ninguno'}", fmt.num(r.pieza_sin_iva, 4)),
-            (f"IVA {iva:g}%{' sobre el 10%' if cond.iva_base == '10' else ''}"
-             + (f" sobre la base sin descuento ({fmt.num(r.lista_sin_iva, 4)})" if cond.iva_sin_descuento and r.factor_desc != 1 else ""),
-             "+ " + fmt.num(r.iva_pieza, 4)),
-            (f"**Pieza con IVA ({mon})**", f"**{fmt.num(r.pieza_con_iva, 4)}**"),
-            (f"Base a $ interno: {base_txt} (× {fmt.num(res.factor_base, 4)})", fmt.num(r.base_int, 4)),
-            (f"IVA a $ interno: {'÷ interna' if cond.moneda == 'bs' else 'Bs a BCV'} (× {fmt.num(res.factor_iva, 4)})"
-             + ("" if iva_costo else " · no se suma"), ("+ " if iva_costo else "") + fmt.num(r.iva_int, 4)),
-            (f"Flete: {fmt.num(res.flete_kg, 4)} $/kg × {fmt.num(ln.peso)} kg", "+ " + fmt.num(r.flete_pieza, 4)),
-            ("**Costo por pieza ($ interno)**", f"**{fmt.num(r.costo_pieza, 4)}**"),
-            ("**Costo por kilo**", f"**{fmt.num(r.costo_kg, 4)}**"),
-            (f"Costo × {1 + m_min / 100:g} · por kilo", f"{fmt.num(r.costo_min, 4)} · {fmt.num(r.kg_min, 4)}"),
-            (f"Costo × {1 + m_obj / 100:g} · por kilo", f"{fmt.num(r.costo_obj, 4)} · {fmt.num(r.kg_obj, 4)}"),
-            ("P3 FERRE · MCY", f"{fmt.num(ln.p3_ferre, 4)} · {fmt.num(ln.p3_mcy, 4)}"),
-            (f"**Acción: {r.accion}**", "—" if r.accion == "MANTENER" else f"P3 sugerido **{fmt.num(r.p3_sugerido, 4)}**"),
-        ]
-        st.markdown(md("| Paso | Valor |\n|---|---:|\n" + "\n".join(f"| {a} | {b} |" for a, b in pasos)))
-with d2.container(border=True):
-    st.markdown("**Historial de compra**" + (" · _ejemplo_" if ss.historial_ejemplo else ""))
-    ult = hist.ultima(r.linea.descripcion)
-    if not ult:
-        st.caption("No hay compras registradas de este producto.")
-    else:
-        datos = [("Fecha", fmt.fecha(ult["FECHA"])), ("Proveedor", ult["PROVEEDOR"]),
-                 ("Precio", f"{fmt.num(ult['PRECIO'], 4)} {ult.get('MONEDA') or ''}")]
-        if fmt.es_numero(ult.get("COSTO_KG")):
-            cambio = f" (hoy {fmt.pct(r.costo_kg / ult['COSTO_KG'] - 1)})" if r.tiene_costo else ""
-            datos.append(("Costo kg", fmt.num(ult["COSTO_KG"], 4) + cambio))
-        for etiqueta, col in (("Cantidad", "CANTIDAD"), ("Tasa", "TASA"), ("Descuento %", "DESCUENTO")):
-            if fmt.es_numero(ult.get(col)) and ult[col]:
-                datos.append((etiqueta, fmt.num(ult[col])))
-        for etiqueta, col in (("Factura / OC", "FACTURA"), ("Condiciones", "CONDICIONES"), ("RIF", "RIF"),
-                              ("Contacto", "CONTACTO"), ("Nota", "OBSERVACION")):
-            v = ult.get(col)
-            if isinstance(v, str) and v.strip():
-                datos.append((etiqueta, v))
-        st.markdown(md("**Última compra**\n\n| Dato | Valor |\n|---|---:|\n" + "\n".join(f"| {a} | {b} |" for a, b in datos)))
-        pp = hist.por_proveedor(r.linea.descripcion)
-        if len(hist.compras(r.linea.descripcion)) > 1:
-            st.markdown("**Último precio de cada proveedor**")
-            vista = pp[["PROVEEDOR", "FECHA", "PRECIO", "COSTO_KG", "CONDICIONES"]].copy()
-            vista["FECHA"] = vista["FECHA"].map(fmt.fecha)
-            vista["PRECIO"] = vista["PRECIO"].map(lambda v: fmt.num(v, 4))
-            vista["COSTO_KG"] = vista["COSTO_KG"].map(lambda v: fmt.num(v, 4))
-            st.dataframe(vista.rename(columns={"PROVEEDOR": "Proveedor", "FECHA": "Fecha", "PRECIO": "Precio", "COSTO_KG": "Costo kg", "CONDICIONES": "Condiciones"}),
-                         hide_index=True, width="stretch")
-
-# --- exportes ---------------------------------------------------------------
-st.markdown("##### Compartir")
-nombre_base = f"costeo_{fmt.slug(prov.nombre)}_{params.fecha.isoformat()}"
-try:
-    png = imagen(res, params, prov, cond, hist, autor)
-    xls = excel(res, params, prov, cond, hist)
-except Exception as e:  # noqa: BLE001
-    st.error(f"No se pudieron generar los archivos: {e}")
-    st.stop()
-e1, e2 = st.columns(2)
-e1.download_button("📱 Descargar imagen para WhatsApp", png, f"{nombre_base}.png", "image/png", type="primary", width="stretch")
-e2.download_button("📊 Descargar Excel", xls, f"{nombre_base}.xlsx",
-                   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch")
-with st.expander("Vista previa de la imagen"):
-    st.image(png, width=420)
-
-# --- guardar en el historial ------------------------------------------------
-st.markdown("##### Guardar en el historial")
-validas = [r for r in res.lineas if r.tiene_costo and fmt.es_numero(r.linea.cantidad) and r.linea.cantidad > 0]
-s1, s2 = st.columns(2)
-factura = s1.text_input("Factura / OC (opcional)", key=f"factura_{clave_costeo}")
-observacion = s2.text_input("Observación (opcional)", key=f"obs_{clave_costeo}")
-st.caption(
-    f"Se registran {len(validas)} de {len(res.lineas)} productos (los que tienen costo y cantidad) como compra de "
-    f"**{prov.nombre}** del {fmt.fecha(params.fecha)}. Aparecerán como «última compra» en los próximos costeos."
-)
-
-
-def guardar_costeo(como_nuevo: bool = False) -> None:
-    cid = nuevo_id(prov, params) if (como_nuevo or not costeo_id) else costeo_id
-    nuevas_h = filas_historial(res, params, prov, cond, cid, factura, observacion)
-    nuevas_c = filas_costeo(res, params, prov, cond, cid, factura, observacion)
-    base_h = None if ss.historial_ejemplo else ss.historial.df
-    try:
-        costeos_prev, _ = ss.almacen.cargar_tabla(ARCH_COSTEOS)
-        hist_final = reemplazar(base_h, nuevas_h, cid)
-        costeos_final = reemplazar(costeos_prev, nuevas_c, cid)
-        msg = ss.almacen.guardar_tabla(ARCH_HISTORIAL, hist_final, f"Costeo {cid}")
-        ss.almacen.guardar_tabla(ARCH_COSTEOS, costeos_final, f"Costeo {cid} (detalle)")
-    except ErrorDeDatos as e:
-        st.error(f"No se pudo guardar el costeo: {e}")
-        return
-    poner_historial(hist_final, ejemplo=False)
-    ss.costeos_sesion[clave_costeo] = cid
-    ss.pop("costeos_df", None)
-    accion = "actualizado" if (costeo_id and not como_nuevo) else "guardado"
-    ss.mensajes.append(("success", f"Costeo {accion}: {len(nuevas_h)} productos de {prov.nombre} en el historial. {msg}"))
-    st.rerun()
-
-
-b_g1, b_g2 = st.columns(2)
-if costeo_id:
-    b_g1.button("💾 Actualizar el costeo guardado", type="primary", width="stretch", disabled=not validas, key="btn_guardar_costeo")
-    b_g2.button("Guardar como costeo nuevo", width="stretch", disabled=not validas, key="btn_guardar_nuevo")
-    st.caption(f"Este costeo ya está guardado ({costeo_id}). Si cambiaste algo, actualízalo; no se duplica.")
-else:
-    b_g1.button("💾 Guardar costeo en el historial", type="primary", width="stretch", disabled=not validas, key="btn_guardar_costeo")
-if ss.get("btn_guardar_costeo"):
-    guardar_costeo()
-if ss.get("btn_guardar_nuevo"):
-    guardar_costeo(como_nuevo=True)
-
-# --- costeos guardados --------------------------------------------------------
-with st.expander("📚 Costeos guardados"):
+def cargar_costeos() -> pd.DataFrame | None:
     if "costeos_df" not in ss:
         try:
             ss.costeos_df, _ = ss.almacen.cargar_tabla(ARCH_COSTEOS)
         except ErrorDeDatos as e:
             st.error(str(e))
             ss.costeos_df = None
-    todos = ss.costeos_df
+    return ss.costeos_df
+
+
+def cb_abrir_para_editar(cid: str) -> None:
+    """Carga un costeo guardado en la pestaña Costeo (tasas, proveedor, condiciones y productos)."""
+    e = abrir_costeo(ss.costeos_df, cid, ss.proveedores)
+    pa, c, prov_g = e["parametros"], e["condiciones"], e["proveedor"]
+    destino = next((p for p in ss.proveedores if p.id == prov_g["id"] or p.nombre.upper() == prov_g["nombre"].upper()), None)
+    if destino is None:  # el proveedor ya no existe: se vuelve a crear con esas condiciones
+        destino = Proveedor(prov_g["id"] or f"p_{uuid.uuid4().hex[:8]}", prov_g["nombre"], Condiciones.desde_dict(c.a_dict()))
+        ss.proveedores.append(destino)
+    pid_d = destino.id
+    ss.prov_id = ss.sel_prov = pid_d
+    ss.fecha, ss.bcv, ss.interna, ss.iva = pa.fecha, pa.tasa_bcv, pa.tasa_interna, pa.iva
+    ss.m_min, ss.m_obj, ss.iva_costo = pa.margen_min, pa.margen_obj, pa.iva_en_costo
+    ss.tasa_info = {}
+    ss.conds[pid_d] = c
+    for campo in list(ss.keys()):
+        if str(campo).startswith(f"c_{pid_d}_"):
+            del ss[campo]
+    filas = [{"Producto": ln.descripcion, "Cantidad": ln.cantidad, "Precio": ln.precio, "Desc. extra %": ln.desc_extra,
+              "Peso kg": ln.peso, "P3 FERRE": ln.p3_ferre, "P3 MCY": ln.p3_mcy} for ln in e["lineas"]]
+    ss.lineas[pid_d] = pd.DataFrame(filas, columns=COLS_LINEAS)
+    ss.editor_v[pid_d] = ss.editor_v.get(pid_d, 0) + 1
+    ss.setdefault("costeos_sesion", {})[f"{pid_d}|{pa.fecha.isoformat()}"] = cid
+    det = ss.costeos_df[ss.costeos_df["COSTEO"].astype(str) == cid]
+    ss[f"factura_{pid_d}|{pa.fecha.isoformat()}"] = str(det["Factura / OC"].fillna("").iloc[0])
+    ss.mensajes.append(("success", f"Costeo {cid} abierto en la pestaña «🧮 Costeo». Si lo cambias y guardas, se actualiza el mismo costeo."))
+
+
+def vista_costeos_guardados() -> None:
+    todos = cargar_costeos()
     resumen_c = resumen_costeos(todos)
     if resumen_c.empty:
-        st.caption("Todavía no hay costeos guardados.")
+        st.info("Todavía no hay costeos guardados. Al terminar un costeo, usa «Guardar costeo en el historial».")
+        return
+    st.caption(f"{len(resumen_c)} {'costeo guardado' if len(resumen_c) == 1 else 'costeos guardados'}. Si guardaste algo desde otro equipo y no aparece, toca «🔄 Recargar datos guardados» en el menú lateral.")
+    vista = resumen_c.drop(columns="COSTEO").copy()
+    vista["Fecha pedido"] = vista["Fecha pedido"].map(fmt.fecha)
+    st.dataframe(vista, hide_index=True, width="stretch")
+
+    etiquetas = {f["COSTEO"]: f"{fmt.fecha(f['Fecha pedido'])} · {f['Proveedor']} · {f['Productos']} productos · guardado {f['Guardado']}"
+                 for f in resumen_c.to_dict("records")}
+    cid = st.selectbox("Elige un costeo", list(etiquetas), format_func=etiquetas.get, key="costeo_ver")
+    try:
+        e = abrir_costeo(todos, cid, ss.proveedores)
+    except Exception as ex:  # noqa: BLE001
+        st.error(f"No se pudo abrir este costeo: {ex}")
+        return
+    pa, c = e["parametros"], e["condiciones"]
+    prov_v = next((p for p in ss.proveedores if p.nombre.upper() == e["proveedor"]["nombre"].upper()),
+                  Proveedor(e["proveedor"]["id"] or "x", e["proveedor"]["nombre"], c))
+    prov_v = Proveedor(prov_v.id, prov_v.nombre, c)
+    res_v = calcular(pa, c, e["lineas"])
+    hist_v = ss.historial.sin_costeo(cid)
+    cnt_v = res_v.conteo()
+    st.markdown(md(f"🔴 **{cnt_v['SUBIR']}** subir · 🟡 **{cnt_v['REVISAR']}** revisar · 🟢 **{cnt_v['MANTENER']}** mantener · "
+                   f"gasto total **$ {fmt.num(res_v.plan.gasto_int)}** interno"))
+    st.caption(md(f"{fmt.fecha(pa.fecha)} · BCV {fmt.num(pa.tasa_bcv)} · interna {fmt.num(pa.tasa_interna)} · "
+                  f"{describir_pago(c)} · {describir_iva(c, pa.iva)}"))
+    corto = pd.DataFrame([{
+        "Producto": r.linea.descripcion, "Cant.": r.linea.cantidad, "Costo kg": r.costo_kg,
+        f"Kg +{pa.margen_min:g}%": r.kg_min, f"Kg +{pa.margen_obj:g}%": r.kg_obj, "Kilo P3": r.kilo_p3,
+        "P3": r.linea.p3_ferre or None, "Acción": r.accion if r.tiene_costo else "ERROR",
+        "P3 sugerido": None if r.accion == "MANTENER" or not r.tiene_costo else r.p3_sugerido,
+    } for r in res_v.lineas])
+    num_c = [k for k in corto.columns if corto[k].dtype.kind in "fi"]
+    st.dataframe(corto.style.format(precision=4, subset=num_c, na_rep="—", thousands=".", decimal=",")
+                 .map(lambda v: COLORES_ACCION.get(v, ""), subset=["Acción"]), hide_index=True, width="stretch")
+    if e["reconstruido"]:
+        st.caption("Costeo guardado con una versión anterior de la app: se rearmó desde el detalle guardado (da los mismos costos).")
+    try:
+        png_v = imagen(res_v, pa, prov_v, c, hist_v, autor)
+        xls_v = excel(res_v, pa, prov_v, c, hist_v)
+    except Exception as ex:  # noqa: BLE001
+        st.error(f"No se pudieron generar los archivos: {ex}")
+        return
+    base_v = f"costeo_{fmt.slug(prov_v.nombre)}_{pa.fecha.isoformat()}"
+    d1, d2, d3 = st.columns(3)
+    d1.download_button("📱 Imagen para WhatsApp", png_v, f"{base_v}.png", "image/png", type="primary", width="stretch", key="dl_png_v")
+    d2.download_button("📊 Excel", xls_v, f"{base_v}.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch", key="dl_xls_v")
+    d3.button("✏️ Abrir para editar", width="stretch", key="btn_abrir_costeo", on_click=cb_abrir_para_editar, args=(cid,))
+    with st.expander("Vista previa de la imagen"):
+        st.image(png_v, width=420)
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="xlsxwriter") as w:
+        todos.drop(columns=["Estado"], errors="ignore").to_excel(w, index=False, sheet_name="Costeos")
+    st.download_button("Descargar todos los costeos (Excel)", buf.getvalue(), "costeos_guardados.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_costeos")
+
+
+tab_costeo, tab_guardados = st.tabs(["🧮 Costeo", "📚 Costeos guardados"])
+with tab_guardados:
+    vista_costeos_guardados()
+
+with tab_costeo:
+    # =============================================================================
+    # Proveedor y forma de pago
+    # =============================================================================
+    st.subheader("1 · Proveedor y forma de pago")
+    prov = proveedor()
+    ids = [p.id for p in ss.proveedores]
+    if ss.get("sel_prov") not in ids:
+        ss.sel_prov = prov.id
+
+
+    # Las acciones que cambian widgets van en callbacks: corren antes de dibujar la página.
+    def cb_cambiar_proveedor() -> None:
+        ss.prov_id = ss.sel_prov
+
+
+    def cb_crear_proveedor() -> None:
+        nombre = ss.get("nombre_prov", "").strip().upper()
+        if not nombre:
+            return
+        p = Proveedor(f"p_{uuid.uuid4().hex[:8]}", nombre, Condiciones.desde_dict(proveedor().condiciones.a_dict()))
+        ss.proveedores.append(p)
+        ss.prov_id = ss.sel_prov = p.id
+        ss.nombre_prov = ""
+        guardar_perfiles()
+
+
+    def cb_renombrar_proveedor() -> None:
+        nombre = ss.get("nombre_prov", "").strip().upper()
+        if nombre:
+            proveedor().nombre = nombre
+            ss.nombre_prov = ""
+            guardar_perfiles()
+
+
+    def cb_eliminar_proveedor() -> None:
+        actual = proveedor()
+        if len(ss.proveedores) < 2:
+            return
+        ss.proveedores = [p for p in ss.proveedores if p.id != actual.id]
+        ss.conds.pop(actual.id, None)
+        ss.lineas.pop(actual.id, None)
+        ss.prov_id = ss.sel_prov = ss.proveedores[0].id
+        guardar_perfiles()
+
+
+    c_sel, c_nuevo, c_borrar = st.columns([3, 1, 1], vertical_alignment="bottom")
+    c_sel.selectbox("Proveedor", ids, format_func=lambda i: next(p.nombre for p in ss.proveedores if p.id == i),
+                    key="sel_prov", on_change=cb_cambiar_proveedor)
+
+    with c_nuevo.popover("Nuevo / renombrar", width="stretch"):
+        st.text_input("Nombre", key="nombre_prov")
+        hay_nombre = bool(ss.get("nombre_prov", "").strip())
+        st.button("Crear proveedor", disabled=not hay_nombre, key="btn_crear", on_click=cb_crear_proveedor,
+                  help="Se crea con las mismas condiciones del proveedor actual; luego las ajustas.")
+        st.button(f"Renombrar {prov.nombre}", disabled=not hay_nombre, key="btn_renombrar", on_click=cb_renombrar_proveedor)
+
+    with c_borrar.popover("Eliminar", width="stretch"):
+        st.write(f"¿Eliminar a **{prov.nombre}** y su perfil?")
+        st.button("Sí, eliminar", type="primary", disabled=len(ss.proveedores) < 2, key="btn_borrar", on_click=cb_eliminar_proveedor)
+        if len(ss.proveedores) < 2:
+            st.caption("Debe quedar al menos un proveedor.")
+
+    pid = prov.id
+    k = lambda campo: f"c_{pid}_{campo}"  # noqa: E731 - clave de widget por proveedor
+
+
+    def valores_widgets(c: Condiciones) -> dict:
+        """Condiciones → valores en el formato que usan los widgets."""
+        return {
+            "moneda": c.moneda, "precio_por": c.precio_por, "iva_incluido": c.iva_incluido, "iva_base": c.iva_base,
+            "iva_sin_descuento": c.iva_sin_descuento,
+            "pago": c.pago, "pago_valor": float(c.pago_valor), "flete": float(c.flete), "flete_moneda": c.flete_moneda,
+            "toneladas": float(c.toneladas), "flete_carga_real": c.flete_carga_real,
+            "descuentos": "; ".join(fmt.num(d).rstrip("0").rstrip(",") for d in c.descuentos),
+        }
+
+
+    def cargar_widgets(c: Condiciones) -> None:
+        """Pone todas las condiciones en los widgets de este proveedor (pisa lo que haya)."""
+        for campo, v in valores_widgets(c).items():
+            ss[k(campo)] = v
+
+
+    # Streamlit descarta el estado de un widget cuando deja de dibujarse (por ejemplo el
+    # "% pagado en dólares" si la forma de pago no lo usa, o todos al cambiar de proveedor):
+    # la clave desaparece o, al volver a dibujarse, el widget vuelve a su valor por defecto.
+    # Solución documentada: reasignar cada clave en cada corrida (así queda como valor
+    # propio y no como estado de widget) y restaurar las que falten desde lo último guardado.
+    GUARDADAS = valores_widgets(ss.conds.get(pid, prov.condiciones))
+    for _campo, _valor in GUARDADAS.items():
+        ss[k(_campo)] = ss[k(_campo)] if k(_campo) in ss else _valor
+
+
+    def valor(campo: str):
+        """Valor actual del campo; si su widget no se dibujó en esta corrida, el último guardado."""
+        return ss.get(k(campo), GUARDADAS[campo])
+
+
+    def leer_descuentos(texto: str) -> list[float]:
+        vals = []
+        for parte in str(texto).replace("+", ";").split(";"):
+            parte = parte.strip().replace("%", "")
+            if parte:
+                try:
+                    vals.append(float(parte.replace(",", ".")))
+                except ValueError:
+                    st.error(f"Descuento no válido: «{parte}». Escribe números separados por punto y coma, por ejemplo: 3; 2")
+        return vals
+
+
+    g1, g2, g3, g4 = st.columns(4)
+    g1.selectbox("Moneda de la cotización", list(MONEDAS), format_func=MONEDAS.get, key=k("moneda"))
+    g2.selectbox("Precio cotizado por", list(PRECIO_POR), format_func=PRECIO_POR.get, key=k("precio_por"))
+    g3.selectbox("¿El precio incluye IVA?", [False, True], format_func=lambda v: "Sí, viene con IVA" if v else "No, viene sin IVA", key=k("iva_incluido"))
+    g4.selectbox("IVA calculado sobre", list(IVA_BASE), format_func=IVA_BASE.get, key=k("iva_base"))
+
+    if valor("moneda") == "usd":
+        h1, h2 = st.columns(2)
+        h1.selectbox("Cómo se paga la base", list(FORMAS_PAGO), format_func=FORMAS_PAGO.get, key=k("pago"))
+        if valor("pago") == "pct":
+            h2.number_input("% pagado en dólares", min_value=0.0, max_value=100.0, step=5.0, key=k("pago_valor"))
+        elif valor("pago") == "monto":
+            h2.number_input("Monto pagado en dólares ($)", min_value=0.0, step=500.0, key=k("pago_valor"),
+                            help="Ejemplo COMPLEJO: si la gandola cuesta 31.500 y 13.000 se pagan en $, escribe 13000. El resto se paga en Bs a BCV.")
+        st.caption(md("El IVA de una cotización en dólares se paga siempre en Bs a tasa BCV: para el costo se lleva a $ con × BCV ÷ interna."))
     else:
-        st.dataframe(resumen_c.drop(columns="COSTEO").assign(**{"Fecha pedido": resumen_c["Fecha pedido"].map(fmt.fecha)}),
-                     hide_index=True, width="stretch")
-        elegido = st.selectbox("Ver un costeo", resumen_c["COSTEO"], key="costeo_ver",
-                               format_func=lambda i: " · ".join(str(v) for v in resumen_c.set_index("COSTEO").loc[i, ["Fecha pedido", "Proveedor", "Guardado"]]))
-        detalle = todos[todos["COSTEO"].astype(str) == str(elegido)]
-        st.dataframe(detalle.drop(columns=["COSTEO"]), hide_index=True, width="stretch")
-        buf = io.BytesIO()
-        with pd.ExcelWriter(buf, engine="xlsxwriter") as w:
-            todos.to_excel(w, index=False, sheet_name="Costeos")
-        st.download_button("Descargar todos los costeos (Excel)", buf.getvalue(), "costeos_guardados.xlsx",
-                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_costeos")
+        st.caption("Cotización en bolívares: la base y el IVA se dividen entre la tasa interna.")
+
+    f1, f2, f3, f4 = st.columns(4)
+    f1.number_input("Flete por gandola", min_value=0.0, step=50.0, key=k("flete"))
+    f2.selectbox("Moneda del flete", list(MONEDAS_FLETE), format_func=MONEDAS_FLETE.get, key=k("flete_moneda"))
+    f3.number_input("Toneladas por gandola", min_value=1.0, step=1.0, key=k("toneladas"))
+    f4.text_input("Descuentos sobre la base %", key=k("descuentos"), placeholder="Ej. 3; 2", help="En cascada: 3; 2 = 3% y luego 2% sobre lo que queda.")
+    d1, d2 = st.columns([2, 2])
+    d1.selectbox("IVA con descuento o sin descuento", list(IVA_DESCUENTO), format_func=IVA_DESCUENTO.get, key=k("iva_sin_descuento"),
+                 help="ACEROS LAMINADOS: el descuento se aplica a la base, pero el IVA se cobra sobre la base completa (IVA full).")
+    st.toggle("Cobrar la gandola completa aunque el pedido pese menos", key=k("flete_carga_real"),
+              help="Apagado (normal): el flete se cobra por kilo, flete ÷ toneladas de la gandola × peso de cada producto. "
+                   "Encendido: si el pedido pesa menos que una gandola, el flete completo se reparte entre los kilos pedidos.")
+    _tarifa = valor("flete") / (valor("toneladas") * 1000) if valor("toneladas") else 0
+    if valor("flete"):
+        st.caption(md(f"Tarifa de flete: {fmt.num(valor('flete'))} ÷ {fmt.num(valor('toneladas') * 1000, 0)} kg = "
+                      f"**{fmt.num(_tarifa, 6)} por kilo** ({MONEDAS_FLETE[valor('flete_moneda')]}), que se multiplica por el peso de cada producto."))
+
+    try:
+        cond = Condiciones(
+            moneda=valor("moneda"), precio_por=valor("precio_por"), iva_incluido=valor("iva_incluido"),
+            iva_base=valor("iva_base"), iva_sin_descuento=valor("iva_sin_descuento"), pago=valor("pago"), pago_valor=valor("pago_valor"),
+            flete=valor("flete"), flete_moneda=valor("flete_moneda"), toneladas=valor("toneladas"),
+            flete_carga_real=valor("flete_carga_real"), descuentos=leer_descuentos(valor("descuentos")),
+        )
+    except ErrorDeDatos as e:
+        st.error(str(e))
+        st.stop()
+    ss.conds[pid] = cond
+
+    def cb_guardar_perfil() -> None:
+        p = proveedor()
+        p.condiciones = Condiciones.desde_dict(ss.conds[p.id].a_dict())
+        guardar_perfiles()
+
+
+    def cb_volver_perfil() -> None:
+        p = proveedor()
+        ss.conds.pop(p.id, None)
+        cargar_widgets(p.condiciones)
+
+
+    if cond.clave() != prov.condiciones.clave():
+        w1, w2, w3 = st.columns([4, 1, 1], vertical_alignment="center")
+        w1.warning(f"Condiciones cambiadas **solo para esta cotización**. El perfil de {prov.nombre} sigue igual.")
+        w2.button("Guardar en el perfil", type="primary", width="stretch", key="btn_guardar_perfil", on_click=cb_guardar_perfil)
+        w3.button("Volver al perfil", width="stretch", key="btn_volver_perfil", on_click=cb_volver_perfil)
+    else:
+        st.caption(f"Usando las condiciones guardadas de **{prov.nombre}**. Si cambias algo, aplica solo a esta cotización hasta que lo guardes en el perfil.")
+
+    # =============================================================================
+    # Productos
+    # =============================================================================
+    st.subheader("2 · Productos del pedido")
+    if pid not in ss.lineas:
+        ss.lineas[pid] = pd.DataFrame(columns=COLS_LINEAS).astype({c: "float" for c in COLS_LINEAS[1:]} | {"Producto": "object"})
+        ss.editor_v[pid] = 0
+
+
+    def datos_catalogo(desc: str):
+        return ss.cat_idx.get(fmt.normalizar(desc))
+
+
+    def reemplazar_lineas(df: pd.DataFrame) -> None:
+        ss.lineas[pid] = df.reset_index(drop=True)
+        ss.editor_v[pid] = ss.editor_v.get(pid, 0) + 1
+
+
+    b1, b2, b3, b4 = st.columns([4, 1.2, 1.2, 1], vertical_alignment="bottom")
+    buscado = b1.selectbox("Buscar en la lista de precios", ss.cat_opciones, index=None, key=f"busca_{pid}_{ss.editor_v[pid]}",
+                           placeholder="Escribe parte del nombre, por ejemplo: cab 1/2")
+    cant_n = b2.number_input("Cantidad de piezas", min_value=0.0, value=None, step=1.0, key=f"cant_{pid}_{ss.editor_v[pid]}")
+    precio_n = b3.number_input("Precio proveedor", min_value=0.0, value=None, step=0.01, format="%.4f", key=f"precio_{pid}_{ss.editor_v[pid]}")
+    if buscado:
+        r = datos_catalogo(buscado)
+        st.caption(f"{buscado}: {fmt.num(r.PESO)} kg · P3 FERRE {fmt.num(r.P3_FERRE)} · MCY {fmt.num(r.P3_MCY)}")
+
+    if b4.button("Agregar", type="primary", disabled=not buscado, width="stretch", key="btn_agregar"):
+        r = datos_catalogo(buscado)
+        fila = {"Producto": r.DESCRIPCION, "Cantidad": cant_n, "Precio": precio_n, "Desc. extra %": 0.0,
+                "Peso kg": r.PESO, "P3 FERRE": r.P3_FERRE, "P3 MCY": r.P3_MCY}
+        base = ss.get(f"_ultimo_editado_{pid}", ss.lineas[pid])
+        reemplazar_lineas(pd.concat([base, pd.DataFrame([fila])], ignore_index=True))
+        st.rerun()
+
+    etiqueta_precio = f"Precio {'Bs' if cond.moneda == 'bs' else '$'} {'c/IVA' if cond.iva_incluido else 's/IVA'} / {PRECIO_POR[cond.precio_por].lower()}"
+    editado = st.data_editor(
+        ss.lineas[pid],
+        key=f"ed_{pid}_{ss.editor_v[pid]}",
+        num_rows="dynamic",
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "Producto": st.column_config.TextColumn("Producto", width="large", required=True),
+            "Cantidad": st.column_config.NumberColumn("Cant. piezas", min_value=0, format="%.2f"),
+            "Precio": st.column_config.NumberColumn(etiqueta_precio, min_value=0, format="%.4f"),
+            "Desc. extra %": st.column_config.NumberColumn("Desc. extra %", min_value=0, max_value=100, format="%.2f"),
+            "Peso kg": st.column_config.NumberColumn("Peso pieza kg", min_value=0, format="%.4f"),
+            "P3 FERRE": st.column_config.NumberColumn("P3 FERRE $", min_value=0, format="%.4f"),
+            "P3 MCY": st.column_config.NumberColumn("P3 MCY $", min_value=0, format="%.4f"),
+        },
+    )
+    ss[f"_ultimo_editado_{pid}"] = editado
+
+    # Completar peso y P3 vacíos desde la lista (sin pisar lo escrito a mano)
+    completados = 0
+    lineas: list[Linea] = []
+    for fila in editado.itertuples(index=False):
+        desc = str(fila.Producto or "").strip()
+        if not desc or desc.lower() == "nan":
+            continue
+        peso, p3f, p3m = fila[4], fila[5], fila[6]
+        r = datos_catalogo(desc)
+        if r is not None:
+            if not (peso and peso > 0):
+                peso, completados = r.PESO, completados + 1
+            if not (p3f and p3f > 0):
+                p3f = r.P3_FERRE
+            if not (p3m and p3m > 0):
+                p3m = r.P3_MCY
+        lineas.append(Linea(desc, fila.Cantidad if pd.notna(fila.Cantidad) else float("nan"),
+                            fila.Precio if pd.notna(fila.Precio) else float("nan"),
+                            peso if pd.notna(peso) else float("nan"),
+                            p3f if pd.notna(p3f) else 0.0, p3m if pd.notna(p3m) else 0.0,
+                            fila[3] if pd.notna(fila[3]) else 0.0))
+
+    a1, a2, a3 = st.columns([2, 2, 3])
+    if a1.button("Actualizar peso y P3 desde la lista", width="stretch", key="btn_refrescar"):
+        df = editado.copy()
+        for i, desc in df["Producto"].items():
+            r = datos_catalogo(str(desc or ""))
+            if r is not None:
+                df.loc[i, ["Peso kg", "P3 FERRE", "P3 MCY"]] = [r.PESO, r.P3_FERRE, r.P3_MCY]
+        reemplazar_lineas(df)
+        st.rerun()
+    if a2.button("Vaciar productos", width="stretch", key="btn_vaciar"):
+        reemplazar_lineas(ss.lineas[pid].iloc[0:0])
+        st.rerun()
+    a3.caption("Puedes pegar filas copiadas de Excel directo en la tabla. Si el producto está en la lista, el peso y el P3 vacíos se completan solos."
+               + (f" Se completaron {completados} pesos desde la lista." if completados else ""))
+
+    def cb_ejemplo() -> None:
+        ej = [('CABILLA 1/2" X 12 MTS', 1400, 11.20), ('CABILLA 3/8" X 12 MTS', 1600, 6.30), ('CABILLA 5/8" X 12 MTS', 200, 17.60)]
+        filas = []
+        for d, c, pr in ej:
+            r = datos_catalogo(d)
+            if r is not None:
+                filas.append({"Producto": d, "Cantidad": c, "Precio": pr, "Desc. extra %": 0.0,
+                              "Peso kg": r.PESO, "P3 FERRE": r.P3_FERRE, "P3 MCY": r.P3_MCY})
+        reemplazar_lineas(pd.DataFrame(filas, columns=COLS_LINEAS))
+        if not ss.get("bcv"):
+            ss.bcv, ss.interna = 210.5, 285.0
+
+
+    if ss.catalogo_ejemplo and not lineas:
+        st.button("Cargar un ejemplo para probar (tasas y precios de ejemplo)", key="btn_ejemplo", on_click=cb_ejemplo)
+
+    # =============================================================================
+    # Resultado
+    # =============================================================================
+    st.subheader("3 · Resultado")
+    params = Parametros(fecha=fecha, tasa_bcv=bcv or 0.0, tasa_interna=interna or 0.0, iva=iva,
+                        margen_min=m_min, margen_obj=m_obj, iva_en_costo=iva_costo)
+    if not lineas:
+        st.info("Agrega productos para ver el costeo.")
+        st.stop()
+
+    res = calcular(params, cond, lineas)
+    for e in res.errores:
+        st.error(e)
+    if res.errores:
+        st.stop()
+    for a in res.avisos:
+        st.warning(md(a))
+
+    mon = "Bs" if cond.moneda == "bs" else "$"
+    cnt = res.conteo()
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("🔴 Subir", cnt["SUBIR"])
+    m2.metric("🟡 Revisar", cnt["REVISAR"])
+    m3.metric("🟢 Mantener", cnt["MANTENER"])
+    m4.metric(f"Kilos totales · {fmt.num(res.totales.kg / (cond.toneladas * 1000))} gandolas", fmt.num(res.totales.kg))
+    m5.metric("Gasto total $ interno", fmt.num(res.plan.gasto_int),
+              help=f"{fmt.num(res.plan.gasto_int / res.totales.kg, 4)} $ por kilo" if res.totales.kg else None)
+
+    t, pl = res.totales, res.plan
+    k1, k2 = st.columns(2)
+    with k1.container(border=True):
+        st.markdown("**Cotización del proveedor**")
+        st.markdown(md(
+            f"| Concepto | Monto |\n|---|---:|\n"
+            f"| Total sin IVA | {mon} {fmt.num(t.sin_iva)} |\n"
+            f"| IVA {'(sobre el 10%)' if cond.iva_base == '10' else ''} | {mon} {fmt.num(t.iva)} |\n"
+            f"| **Total con IVA** | **{mon} {fmt.num(t.con_iva)}** |\n"
+            f"| Condiciones | {describir_iva(cond, iva)} |\n"
+            + (f"| Descuentos | {' + '.join(fmt.num(x) + '%' for x in cond.descuentos)} |\n" if cond.descuentos else "")
+        ))
+    with k2.container(border=True):
+        st.markdown("**Cómo se paga**")
+        if cond.moneda == "usd":
+            st.markdown(md(
+                f"| Concepto | Monto |\n|---|---:|\n"
+                f"| Base en dólares | $ {fmt.num(pl.usd)} |\n"
+                f"| Base en Bs a BCV | Bs {fmt.num(pl.bs_base)} <br><small>$ {fmt.num(pl.usd_base_en_bs)} × {fmt.num(params.tasa_bcv)}</small> |\n"
+                f"| IVA en Bs a BCV | Bs {fmt.num(pl.bs_iva)} <br><small>$ {fmt.num(pl.usd_iva)} × {fmt.num(params.tasa_bcv)}</small> |\n"
+                f"| **Total en bolívares** | **Bs {fmt.num(pl.bs_total)}** |\n"
+                f"| Flete | $ int. {fmt.num(pl.flete_int)} |\n"
+                f"| **Gasto total en $ interno** | **$ {fmt.num(pl.gasto_int)}** |\n"), unsafe_allow_html=True)
+            st.caption(md(f"{describir_pago(cond)}. Los Bs se llevan a $ interno dividiendo entre {fmt.num(params.tasa_interna)}."))
+        else:
+            st.markdown(md(
+                f"| Concepto | Monto |\n|---|---:|\n| Base | Bs {fmt.num(pl.bs_base)} |\n| IVA | Bs {fmt.num(pl.bs_iva)} |\n"
+                f"| **Total en bolívares** | **Bs {fmt.num(pl.bs_total)}** |\n| Flete | $ int. {fmt.num(pl.flete_int)} |\n"
+                f"| **Gasto total en $ interno** | **$ {fmt.num(pl.gasto_int)}** |\n"))
+            st.caption(f"Bolívares ÷ tasa interna {fmt.num(params.tasa_interna)}.")
+
+    # Costeo de esta sesión (mismo proveedor y fecha): si ya se guardó, se actualiza en vez de duplicarse,
+    # y sus filas no se muestran como «última compra» de sí mismo.
+    clave_costeo = f"{prov.id}|{params.fecha.isoformat()}"
+    costeo_id = ss.setdefault("costeos_sesion", {}).get(clave_costeo)
+    hist = ss.historial.sin_costeo(costeo_id)
+
+    df_res = tabla(res, params, prov, cond, hist)
+    pct_cols = [c for c in df_res.columns if c.startswith("Dif.")]
+    num_cols = [c for c in df_res.columns if df_res[c].dtype.kind in "fi" and c not in pct_cols]
+    estilo = (
+        df_res.style
+        .format(precision=4, subset=num_cols, na_rep="—", thousands=".", decimal=",")
+        .format(lambda v: fmt.pct(v), subset=pct_cols)
+        .map(lambda v: COLORES_ACCION.get(v, ""), subset=["Acción"])
+        .map(lambda v: "color:#B91C1C" if isinstance(v, float) and v < 0 else "color:#15803D", subset=pct_cols)
+    )
+    st.dataframe(estilo, width="stretch", hide_index=True, height=min(80 + 36 * len(df_res), 520))
+
+    # --- detalle de un producto -----------------------------------------------
+    st.markdown("##### Detalle por producto")
+    nombres = [r.linea.descripcion for r in res.lineas]
+    sel = st.selectbox("Producto", range(len(nombres)), format_func=lambda i: nombres[i], key="detalle", label_visibility="collapsed")
+    r = res.lineas[sel]
+    d1, d2 = st.columns(2)
+    with d1.container(border=True):
+        if not r.tiene_costo:
+            st.error(f"{r.linea.descripcion}: {r.error}")
+        else:
+            ln = r.linea
+            descs = [*cond.descuentos, *([ln.desc_extra] if ln.desc_extra else [])]
+            if res.porcion_divisa is None:
+                base_txt = f"÷ interna {fmt.num(params.tasa_interna)}"
+            elif res.porcion_divisa == 1:
+                base_txt = "pagada en $ (× 1)"
+            elif res.porcion_divisa == 0:
+                base_txt = "Bs a BCV (× BCV ÷ interna)"
+            else:
+                base_txt = f"{fmt.num(res.porcion_divisa * 100, 1)}% en $ + {fmt.num((1 - res.porcion_divisa) * 100, 1)}% Bs a BCV"
+            pasos = [
+                (f"Precio cotizado por {PRECIO_POR[cond.precio_por].lower()} ({mon})", fmt.num(ln.precio, 4)),
+                ("Precio por pieza", fmt.num(r.precio_pieza, 4)),
+                *([(f"Se quita el IVA (÷ {fmt.num(1 + res.tasa_iva_efectiva, 4)})", fmt.num(r.lista_sin_iva, 4))] if cond.iva_incluido else []),
+                (f"Descuentos sobre la base: {' → '.join(fmt.num(x) + '%' for x in descs) or 'ninguno'}", fmt.num(r.pieza_sin_iva, 4)),
+                (f"IVA {iva:g}%{' sobre el 10%' if cond.iva_base == '10' else ''}"
+                 + (f" sobre la base sin descuento ({fmt.num(r.lista_sin_iva, 4)})" if cond.iva_sin_descuento and r.factor_desc != 1 else ""),
+                 "+ " + fmt.num(r.iva_pieza, 4)),
+                (f"**Pieza con IVA ({mon})**", f"**{fmt.num(r.pieza_con_iva, 4)}**"),
+                (f"Base a $ interno: {base_txt} (× {fmt.num(res.factor_base, 4)})", fmt.num(r.base_int, 4)),
+                (f"IVA a $ interno: {'÷ interna' if cond.moneda == 'bs' else 'Bs a BCV'} (× {fmt.num(res.factor_iva, 4)})"
+                 + ("" if iva_costo else " · no se suma"), ("+ " if iva_costo else "") + fmt.num(r.iva_int, 4)),
+                (f"Flete: {fmt.num(res.flete_kg, 4)} $/kg × {fmt.num(ln.peso)} kg", "+ " + fmt.num(r.flete_pieza, 4)),
+                ("**Costo por pieza ($ interno)**", f"**{fmt.num(r.costo_pieza, 4)}**"),
+                ("**Costo por kilo**", f"**{fmt.num(r.costo_kg, 4)}**"),
+                (f"Costo × {1 + m_min / 100:g} · por kilo", f"{fmt.num(r.costo_min, 4)} · {fmt.num(r.kg_min, 4)}"),
+                (f"Costo × {1 + m_obj / 100:g} · por kilo", f"{fmt.num(r.costo_obj, 4)} · {fmt.num(r.kg_obj, 4)}"),
+                ("P3 FERRE · MCY", f"{fmt.num(ln.p3_ferre, 4)} · {fmt.num(ln.p3_mcy, 4)}"),
+                (f"**Acción: {r.accion}**", "—" if r.accion == "MANTENER" else f"P3 sugerido **{fmt.num(r.p3_sugerido, 4)}**"),
+            ]
+            st.markdown(md("| Paso | Valor |\n|---|---:|\n" + "\n".join(f"| {a} | {b} |" for a, b in pasos)))
+    with d2.container(border=True):
+        st.markdown("**Historial de compra**" + (" · _ejemplo_" if ss.historial_ejemplo else ""))
+        ult = hist.ultima(r.linea.descripcion)
+        if not ult:
+            st.caption("No hay compras registradas de este producto.")
+        else:
+            datos = [("Fecha", fmt.fecha(ult["FECHA"])), ("Proveedor", ult["PROVEEDOR"]),
+                     ("Precio", f"{fmt.num(ult['PRECIO'], 4)} {ult.get('MONEDA') or ''}")]
+            if fmt.es_numero(ult.get("COSTO_KG")):
+                cambio = f" (hoy {fmt.pct(r.costo_kg / ult['COSTO_KG'] - 1)})" if r.tiene_costo else ""
+                datos.append(("Costo kg", fmt.num(ult["COSTO_KG"], 4) + cambio))
+            for etiqueta, col in (("Cantidad", "CANTIDAD"), ("Tasa", "TASA"), ("Descuento %", "DESCUENTO")):
+                if fmt.es_numero(ult.get(col)) and ult[col]:
+                    datos.append((etiqueta, fmt.num(ult[col])))
+            for etiqueta, col in (("Factura / OC", "FACTURA"), ("Condiciones", "CONDICIONES"), ("RIF", "RIF"),
+                                  ("Contacto", "CONTACTO"), ("Nota", "OBSERVACION")):
+                v = ult.get(col)
+                if isinstance(v, str) and v.strip():
+                    datos.append((etiqueta, v))
+            st.markdown(md("**Última compra**\n\n| Dato | Valor |\n|---|---:|\n" + "\n".join(f"| {a} | {b} |" for a, b in datos)))
+            pp = hist.por_proveedor(r.linea.descripcion)
+            if len(hist.compras(r.linea.descripcion)) > 1:
+                st.markdown("**Último precio de cada proveedor**")
+                vista = pp[["PROVEEDOR", "FECHA", "PRECIO", "COSTO_KG", "CONDICIONES"]].copy()
+                vista["FECHA"] = vista["FECHA"].map(fmt.fecha)
+                vista["PRECIO"] = vista["PRECIO"].map(lambda v: fmt.num(v, 4))
+                vista["COSTO_KG"] = vista["COSTO_KG"].map(lambda v: fmt.num(v, 4))
+                st.dataframe(vista.rename(columns={"PROVEEDOR": "Proveedor", "FECHA": "Fecha", "PRECIO": "Precio", "COSTO_KG": "Costo kg", "CONDICIONES": "Condiciones"}),
+                             hide_index=True, width="stretch")
+
+    # --- exportes ---------------------------------------------------------------
+    st.markdown("##### Compartir")
+    nombre_base = f"costeo_{fmt.slug(prov.nombre)}_{params.fecha.isoformat()}"
+    try:
+        png = imagen(res, params, prov, cond, hist, autor)
+        xls = excel(res, params, prov, cond, hist)
+    except Exception as e:  # noqa: BLE001
+        st.error(f"No se pudieron generar los archivos: {e}")
+        st.stop()
+    e1, e2 = st.columns(2)
+    e1.download_button("📱 Descargar imagen para WhatsApp", png, f"{nombre_base}.png", "image/png", type="primary", width="stretch")
+    e2.download_button("📊 Descargar Excel", xls, f"{nombre_base}.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch")
+    with st.expander("Vista previa de la imagen"):
+        st.image(png, width=420)
+
+    # --- guardar en el historial ------------------------------------------------
+    st.markdown("##### Guardar en el historial")
+    validas = [r for r in res.lineas if r.tiene_costo and fmt.es_numero(r.linea.cantidad) and r.linea.cantidad > 0]
+    s1, s2 = st.columns(2)
+    factura = s1.text_input("Factura / OC (opcional)", key=f"factura_{clave_costeo}")
+    observacion = s2.text_input("Observación (opcional)", key=f"obs_{clave_costeo}")
+    st.caption(
+        f"Se registran {len(validas)} de {len(res.lineas)} productos (los que tienen costo y cantidad) como compra de "
+        f"**{prov.nombre}** del {fmt.fecha(params.fecha)}. Aparecerán como «última compra» en los próximos costeos."
+    )
+
+
+    def guardar_costeo(como_nuevo: bool = False) -> None:
+        cid = nuevo_id(prov, params) if (como_nuevo or not costeo_id) else costeo_id
+        nuevas_h = filas_historial(res, params, prov, cond, cid, factura, observacion)
+        nuevas_c = filas_costeo(res, params, prov, cond, cid, factura, observacion)
+        base_h = None if ss.historial_ejemplo else ss.historial.df
+        try:
+            costeos_prev, _ = ss.almacen.cargar_tabla(ARCH_COSTEOS)
+            hist_final = reemplazar(base_h, nuevas_h, cid)
+            costeos_final = reemplazar(costeos_prev, nuevas_c, cid)
+            msg = ss.almacen.guardar_tabla(ARCH_HISTORIAL, hist_final, f"Costeo {cid}")
+            ss.almacen.guardar_tabla(ARCH_COSTEOS, costeos_final, f"Costeo {cid} (detalle)")
+        except ErrorDeDatos as e:
+            st.error(f"No se pudo guardar el costeo: {e}")
+            return
+        poner_historial(hist_final, ejemplo=False)
+        ss.costeos_sesion[clave_costeo] = cid
+        ss.pop("costeos_df", None)
+        accion = "actualizado" if (costeo_id and not como_nuevo) else "guardado"
+        ss.mensajes.append(("success", f"Costeo {accion}: {len(nuevas_h)} productos de {prov.nombre} en el historial. {msg}"))
+        st.rerun()
+
+
+    b_g1, b_g2 = st.columns(2)
+    if costeo_id:
+        b_g1.button("💾 Actualizar el costeo guardado", type="primary", width="stretch", disabled=not validas, key="btn_guardar_costeo")
+        b_g2.button("Guardar como costeo nuevo", width="stretch", disabled=not validas, key="btn_guardar_nuevo")
+        st.caption(f"Este costeo ya está guardado ({costeo_id}). Si cambiaste algo, actualízalo; no se duplica.")
+    else:
+        b_g1.button("💾 Guardar costeo en el historial", type="primary", width="stretch", disabled=not validas, key="btn_guardar_costeo")
+    if ss.get("btn_guardar_costeo"):
+        guardar_costeo()
+    if ss.get("btn_guardar_nuevo"):
+        guardar_costeo(como_nuevo=True)

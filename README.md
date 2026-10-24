@@ -138,7 +138,7 @@ Descarga la **plantilla** desde la app (barra lateral → Historial de compras).
 
 ## Uso diario
 
-1. En la barra lateral, coloca la **fecha del pedido**, la **tasa BCV** de ese día y la **tasa interna**.
+1. En la barra lateral, revisa la **fecha del pedido** y la **tasa BCV**: al abrir la app se trae sola desde bcv.org.ve (respaldo: ve.dolarapi.com) y muestra su **fecha valor**. El botón 🔄 la vuelve a consultar; si no hay conexión, se escribe a mano. Luego coloca la **tasa interna**.
 2. Si cambió, actualiza la **lista de precios** (barra lateral → Lista de precios ACEVAL → subir Excel → Guardar lista).
 3. Elige el **proveedor**. Revisa forma de pago, flete y descuentos.
 4. Agrega los productos con el buscador (cantidad y precio del proveedor) o pega las filas desde Excel.
@@ -147,7 +147,9 @@ Descarga la **plantilla** desde la app (barra lateral → Historial de compras).
 7. Escribe la **factura / OC** (opcional) y toca **Guardar costeo en el historial**.
    - Cada producto queda registrado como una compra: fecha, proveedor, precio por pieza sin IVA, costo por kilo, cantidad, condiciones, tasa y factura.
    - Desde ese momento aparece como **«última compra»** en los costeos siguientes.
-   - El detalle completo queda en **📚 Costeos guardados**, al final de la página, y se descarga en Excel.
+   - En la pestaña **📚 Costeos guardados** (también desde el celular) eliges cualquier costeo y descargas otra vez su **imagen para WhatsApp** y su **Excel**, o lo abres para editarlo con **✏️ Abrir para editar**.
+   - Si guardaste desde otro equipo, toca **🔄 Recargar datos guardados** en la barra lateral.
+   - **Descargar historial guardado** (barra lateral → Historial de compras) baja todas las compras registradas en Excel.
    - Si corriges algo y vuelves a guardar, el costeo se **actualiza**, no se duplica. Para registrar otra compra el mismo día con el mismo proveedor, usa **Guardar como costeo nuevo**.
 
 ---
@@ -221,7 +223,8 @@ costeo-compras/
 │   ├── historial.py          # Lectura del historial y consulta de últimas compras
 │   ├── almacen.py            # Guardado local + sincronización opcional con GitHub
 │   ├── exportar.py           # Tabla, Excel e imagen PNG
-│   ├── registro.py           # Guardar un costeo en el historial y en costeos.csv
+│   ├── registro.py           # Guardar y reabrir costeos (historial y costeos.csv)
+│   ├── tasas.py              # Tasa BCV automática (bcv.org.ve / ve.dolarapi.com)
 │   └── formato.py            # Números 1.234,56, fechas dd/mm/aaaa, normalización
 ├── data/proveedores.json     # Perfiles iniciales (UNICOM, COMPLEJO)
 ├── assets/fonts/             # Fuentes DejaVu para la imagen (licencia incluida)

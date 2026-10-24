@@ -4,3 +4,4 @@ openpyxl>=3.1
 xlsxwriter>=3.2
 pillow>=10.4
 requests>=2.32
+tzdata>=2024.1

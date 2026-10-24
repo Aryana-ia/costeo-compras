@@ -62,3 +62,30 @@ def test_costeos_detalle_y_resumen():
     # la cabilla sin cantidad no va al historial, pero sí se costea y aparece en el detalle
     assert r.iloc[0].Productos == 3 and r.iloc[0].Subir == 2 and r.iloc[0]["Factura / OC"] == "F-99"
     assert resumen_costeos(pd.DataFrame()).empty
+
+
+def test_reabrir_costeo_con_estado_da_lo_mismo():
+    from costeo.registro import abrir_costeo
+    res = calcular(P, COND, LINEAS)
+    c = filas_costeo(res, P, PROV, COND, "X1")
+    e = abrir_costeo(c, "X1", [PROV])
+    assert not e["reconstruido"]
+    res2 = calcular(e["parametros"], e["condiciones"], e["lineas"])
+    assert res2.lineas[0].costo_pieza == pytest.approx(res.lineas[0].costo_pieza)
+    assert e["condiciones"].clave() == COND.clave()
+
+
+def test_reabrir_costeo_antiguo_sin_estado():
+    """Costeos guardados antes de la columna Estado se rearman desde el detalle."""
+    from costeo.registro import abrir_costeo
+    cond = Condiciones(moneda="usd", descuentos=[11], iva_sin_descuento=True, flete=300, pago="monto", pago_valor=5000)
+    lineas = [Linea("A", 40, 254.28, 233.28, 294.91, 294.91, 4.0), Linea("B", 100, 9.21, 8.36, 11, 11)]
+    res = calcular(P, cond, lineas)
+    c = filas_costeo(res, P, PROV, cond, "X1").drop(columns="Estado")
+    e = abrir_costeo(c, "X1", [PROV])
+    assert e["reconstruido"]
+    assert e["condiciones"].pago == "monto" and e["condiciones"].pago_valor == pytest.approx(5000)
+    assert e["lineas"][0].desc_extra == pytest.approx(4.0)
+    res2 = calcular(e["parametros"], e["condiciones"], e["lineas"])
+    for a, b in zip(res.lineas, res2.lineas):
+        assert b.costo_pieza == pytest.approx(a.costo_pieza)

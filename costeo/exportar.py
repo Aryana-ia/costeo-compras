@@ -342,7 +342,7 @@ def imagen(res: Resultado, p: Parametros, prov: Proveedor, cond: Condiciones, hi
 
     if autor:
         d.text((P, H - 76), f"Elaborado por: {autor}", font=F["small"], fill=C["mut"])
-    d.text((P, H - 44), f"Generado {datetime.now().strftime('%d/%m/%Y %H:%M')}", font=F["small"], fill=C["mut"])
+    d.text((P, H - 44), f"Generado {fmt.ahora().strftime('%d/%m/%Y %H:%M')}", font=F["small"], fill=C["mut"])
 
     out = io.BytesIO()
     img.save(out, format="PNG", optimize=True)
