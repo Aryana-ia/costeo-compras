@@ -757,8 +757,10 @@ with tab_costeo:
                 f"| Base en dólares | $ {fmt.num(pl.usd)} |\n"
                 f"| Base en Bs a BCV | Bs {fmt.num(pl.bs_base)} <br><small>$ {fmt.num(pl.usd_base_en_bs)} × {fmt.num(params.tasa_bcv)}</small> |\n"
                 f"| IVA en Bs a BCV | Bs {fmt.num(pl.bs_iva)} <br><small>$ {fmt.num(pl.usd_iva)} × {fmt.num(params.tasa_bcv)}</small> |\n"
-                + (f"| ↳ Retención IVA {pl.retencion_pct:g}% (al SENIAT) | Bs {fmt.num(pl.bs_iva_retenido)} |\n"
-                   f"| ↳ IVA al proveedor ({100 - pl.retencion_pct:g}%) | Bs {fmt.num(pl.bs_iva_proveedor)} |\n" if pl.retencion_pct else "")
+                + (f"| ↳ Retención IVA {pl.retencion_pct:g}% (al SENIAT) | Bs {fmt.num(pl.bs_iva_retenido)} "
+                   f"<br><small>$ {fmt.num(pl.en_dolares(pl.bs_iva_retenido)[0])} a BCV · $ {fmt.num(pl.en_dolares(pl.bs_iva_retenido)[1])} interno</small> |\n"
+                   f"| ↳ IVA al proveedor ({100 - pl.retencion_pct:g}%) | Bs {fmt.num(pl.bs_iva_proveedor)} "
+                   f"<br><small>$ {fmt.num(pl.en_dolares(pl.bs_iva_proveedor)[0])} a BCV · $ {fmt.num(pl.en_dolares(pl.bs_iva_proveedor)[1])} interno</small> |\n" if pl.retencion_pct else "")
                 + f"| **Total en bolívares** | **Bs {fmt.num(pl.bs_total)}** |\n"
                 + (f"| ↳ De eso, al proveedor | Bs {fmt.num(pl.bs_al_proveedor)} |\n" if pl.retencion_pct else "")
                 + f"| Flete | $ int. {fmt.num(pl.flete_int)} |\n"
@@ -768,12 +770,14 @@ with tab_costeo:
         else:
             st.markdown(md(
                 f"| Concepto | Monto |\n|---|---:|\n| Base | Bs {fmt.num(pl.bs_base)} |\n| IVA | Bs {fmt.num(pl.bs_iva)} |\n"
-                + (f"| ↳ Retención IVA {pl.retencion_pct:g}% (al SENIAT) | Bs {fmt.num(pl.bs_iva_retenido)} |\n"
-                   f"| ↳ IVA al proveedor ({100 - pl.retencion_pct:g}%) | Bs {fmt.num(pl.bs_iva_proveedor)} |\n" if pl.retencion_pct else "")
+                + (f"| ↳ Retención IVA {pl.retencion_pct:g}% (al SENIAT) | Bs {fmt.num(pl.bs_iva_retenido)} "
+                   f"<br><small>$ {fmt.num(pl.en_dolares(pl.bs_iva_retenido)[0])} a BCV · $ {fmt.num(pl.en_dolares(pl.bs_iva_retenido)[1])} interno</small> |\n"
+                   f"| ↳ IVA al proveedor ({100 - pl.retencion_pct:g}%) | Bs {fmt.num(pl.bs_iva_proveedor)} "
+                   f"<br><small>$ {fmt.num(pl.en_dolares(pl.bs_iva_proveedor)[0])} a BCV · $ {fmt.num(pl.en_dolares(pl.bs_iva_proveedor)[1])} interno</small> |\n" if pl.retencion_pct else "")
                 + f"| **Total en bolívares** | **Bs {fmt.num(pl.bs_total)}** |\n"
                 + (f"| ↳ De eso, al proveedor | Bs {fmt.num(pl.bs_al_proveedor)} |\n" if pl.retencion_pct else "")
                 + f"| Flete | $ int. {fmt.num(pl.flete_int)} |\n"
-                f"| **Gasto total en $ interno** | **$ {fmt.num(pl.gasto_int)}** |\n"))
+                f"| **Gasto total en $ interno** | **$ {fmt.num(pl.gasto_int)}** |\n"), unsafe_allow_html=True)
             st.caption(f"Bolívares ÷ tasa interna {fmt.num(params.tasa_interna)}.")
 
     # Costeo de esta sesión (mismo proveedor y fecha): si ya se guardó, se actualiza en vez de duplicarse,

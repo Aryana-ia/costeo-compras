@@ -85,8 +85,12 @@ def resumen_pago(res: Resultado, p: Parametros, prov: Proveedor, cond: Condicion
         ("Base pagada en $", pl.usd),
         ("Base pagada en Bs", pl.bs_base),
         ("IVA pagado en Bs", pl.bs_iva),
-        (f"  · Retención IVA {pl.retencion_pct:g}% (al SENIAT)", pl.bs_iva_retenido if pl.retencion_pct else None),
-        ("  · IVA al proveedor", pl.bs_iva_proveedor if pl.retencion_pct else None),
+        (f"  · Retención IVA {pl.retencion_pct:g}% (al SENIAT) Bs", pl.bs_iva_retenido if pl.retencion_pct else None),
+        ("      en $ a tasa BCV", pl.en_dolares(pl.bs_iva_retenido)[0] if pl.retencion_pct else None),
+        ("      en $ interno", pl.en_dolares(pl.bs_iva_retenido)[1] if pl.retencion_pct else None),
+        ("  · IVA al proveedor Bs", pl.bs_iva_proveedor if pl.retencion_pct else None),
+        ("      en $ a tasa BCV", pl.en_dolares(pl.bs_iva_proveedor)[0] if pl.retencion_pct else None),
+        ("      en $ interno", pl.en_dolares(pl.bs_iva_proveedor)[1] if pl.retencion_pct else None),
         ("Total en Bs al proveedor", pl.bs_al_proveedor if pl.retencion_pct else None),
         ("Total en Bs", pl.bs_total),
         ("Flete ($ interno)", pl.flete_int),
@@ -326,8 +330,10 @@ def imagen(res: Resultado, p: Parametros, prov: Proveedor, cond: Condiciones, hi
         if pl.igtf:
             agregar(f"IGTF {cond.igtf_pct:g}%: $ {fmt.num(pl.igtf)} (incluido en el costo)", F["sub"], C["mut"])
         if pl.retencion_pct:
-            agregar(f"Retención IVA {pl.retencion_pct:g}%: Bs {fmt.num(pl.bs_iva_retenido)} al SENIAT · "
-                    f"al proveedor Bs {fmt.num(pl.bs_al_proveedor)}", F["sub"], C["mut"])
+            ret_bcv, ret_int = pl.en_dolares(pl.bs_iva_retenido)
+            agregar(f"Retención IVA {pl.retencion_pct:g}% al SENIAT: Bs {fmt.num(pl.bs_iva_retenido)} · "
+                    f"$ {fmt.num(ret_bcv)} BCV · $ {fmt.num(ret_int)} interno", F["sub"], C["mut"])
+            agregar(f"Al proveedor: Bs {fmt.num(pl.bs_al_proveedor)}", F["sub"], C["mut"])
         agregar(f"Gasto total $ interno {fmt.num(pl.gasto_int)} · {fmt.num(pl.gasto_int / t.kg if t.kg else float('nan'), 4)} $/kg", F["bold"], C["ink"])
     sum_h, foot_h = (84 + 20 + 40 * len(lineas_res) + 36 if t.lineas else 110), 110
     H = head_h + sum_h + sum(b[3] + 20 for b in bloques) + foot_h

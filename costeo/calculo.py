@@ -253,6 +253,7 @@ def calcular(p: Parametros, cond: Condiciones, lineas: list[Linea]) -> Resultado
     plan.flete_int = tot.flete_asignado
     plan.igtf = tot.igtf
     plan.retencion_pct = cond.retencion_pct if cond.retencion_iva else 0.0  # solo informativo
+    plan.tasa_bcv, plan.tasa_interna = p.tasa_bcv, p.tasa_interna
     plan.gasto_int = tot.base_int + (tot.iva_int if p.iva_en_costo else 0.0) + tot.flete_asignado + tot.igtf
     if cond.igtf and cond.moneda == "bs":
         avisos.append("El IGTF está activado, pero la cotización es en bolívares: no hay base en dólares, así que no se cobra.")

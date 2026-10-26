@@ -240,6 +240,8 @@ class PlanDePago:
     flete_int: float = 0.0       # flete completo en $ interno
     igtf: float = 0.0            # IGTF pagado (en $)
     retencion_pct: float = 0.0   # % del IVA que se retiene (informativo, no cambia el costo)
+    tasa_bcv: float = 0.0
+    tasa_interna: float = 0.0
 
     @property
     def bs_iva_retenido(self) -> float:
@@ -254,6 +256,12 @@ class PlanDePago:
     @property
     def bs_al_proveedor(self) -> float:
         return self.bs_base + self.bs_iva_proveedor
+
+    def en_dolares(self, bs: float) -> tuple[float, float]:
+        """(dólares a tasa BCV, dólares a tasa interna) de un monto en Bs."""
+        bcv = bs / self.tasa_bcv if self.tasa_bcv else float("nan")
+        interno = bs / self.tasa_interna if self.tasa_interna else float("nan")
+        return bcv, interno
     gasto_int: float = 0.0       # todo lo pagado, en $ interno
 
     @property

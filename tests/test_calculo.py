@@ -230,3 +230,10 @@ def test_retencion_con_porcentaje_distinto_y_en_bolivares():
     res = calcular(params(), Condiciones(moneda="bs", retencion_iva=True, retencion_pct=100), [cabilla_media(cant=1, precio=1000)])
     assert res.plan.bs_iva_proveedor == pytest.approx(0)
     assert res.plan.bs_al_proveedor == pytest.approx(res.plan.bs_base)
+
+
+def test_retencion_en_dolares():
+    res = calcular(params(), Condiciones(moneda="usd", retencion_iva=True), [cabilla_media(cant=10, precio=100)])
+    bcv, interno = res.plan.en_dolares(res.plan.bs_iva_retenido)
+    assert bcv == pytest.approx(10 * 100 * 0.16 * 0.75)          # 120 $: el 75 % del IVA en dólares a tasa BCV
+    assert interno == pytest.approx(120 * BCV / INT)               # lo que representa en $ interno
