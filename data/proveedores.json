@@ -14,7 +14,11 @@
       "flete_moneda": "usd",
       "toneladas": 32.0,
       "flete_carga_real": false,
-      "descuentos": []
+      "descuentos": [],
+      "igtf": false,
+      "igtf_pct": 3.0,
+      "retencion_iva": false,
+      "retencion_pct": 75.0
     }
   },
   {
@@ -32,7 +36,11 @@
       "flete_moneda": "usd",
       "toneladas": 32.0,
       "flete_carga_real": false,
-      "descuentos": []
+      "descuentos": [],
+      "igtf": false,
+      "igtf_pct": 3.0,
+      "retencion_iva": false,
+      "retencion_pct": 75.0
     }
   },
   {
@@ -50,7 +58,11 @@
       "flete_moneda": "usd",
       "toneladas": 32.0,
       "flete_carga_real": false,
-      "descuentos": []
+      "descuentos": [],
+      "igtf": false,
+      "igtf_pct": 3.0,
+      "retencion_iva": false,
+      "retencion_pct": 75.0
     }
   },
   {
@@ -58,17 +70,21 @@
     "nombre": "SIDOR",
     "condiciones": {
       "moneda": "usd",
-      "precio_por": "pieza",
+      "precio_por": "tonelada",
       "iva_incluido": false,
       "iva_base": "100",
       "iva_sin_descuento": false,
-      "pago": "pct",
+      "pago": "divisa",
       "pago_valor": 50.0,
-      "flete": 0.0,
+      "flete": 1200.0,
       "flete_moneda": "usd",
-      "toneladas": 32.0,
+      "toneladas": 30.0,
       "flete_carga_real": false,
-      "descuentos": []
+      "descuentos": [],
+      "igtf": true,
+      "igtf_pct": 3.0,
+      "retencion_iva": true,
+      "retencion_pct": 75.0
     }
   }
 ]
