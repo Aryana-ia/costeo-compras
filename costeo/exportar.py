@@ -85,12 +85,16 @@ def resumen_pago(res: Resultado, p: Parametros, prov: Proveedor, cond: Condicion
         ("Base pagada en $", pl.usd),
         ("Base pagada en Bs", pl.bs_base),
         ("IVA pagado en Bs", pl.bs_iva),
+        (f"  · Retención IVA {pl.retencion_pct:g}% (al SENIAT)", pl.bs_iva_retenido if pl.retencion_pct else None),
+        ("  · IVA al proveedor", pl.bs_iva_proveedor if pl.retencion_pct else None),
+        ("Total en Bs al proveedor", pl.bs_al_proveedor if pl.retencion_pct else None),
         ("Total en Bs", pl.bs_total),
         ("Flete ($ interno)", pl.flete_int),
         ("IGTF ($)", pl.igtf),
         ("Gasto total ($ interno)", pl.gasto_int),
         ("Gasto por kilo ($ interno)", pl.gasto_int / t.kg if t.kg else None),
     ]
+    filas = [f for f in filas if f[1] is not None]  # se omiten las filas que no aplican
     return pd.DataFrame(filas, columns=["Concepto", "Valor"])
 
 
@@ -308,7 +312,24 @@ def imagen(res: Resultado, p: Parametros, prov: Proveedor, cond: Condiciones, hi
         ult = historial.ultima(r.linea.descripcion) if historial is not None else None
         bloques.append((r, nl, ult, _alto_producto(r, len(nl), ult)))
 
-    sum_h, foot_h = (260 if t.lineas else 110), 110
+    # Caja de totales y pago: las líneas largas se parten en vez de cortarse
+    lineas_res = []
+    if t.lineas:
+        def agregar(texto, fuente, color):
+            lineas_res.extend((l, fuente, color) for l in _envolver(medidor, texto, fuente, IW - 40))
+
+        agregar(f"{fmt.num(t.kg / 1000)} t · Total s/IVA {mon} {fmt.num(t.sin_iva)} · IVA {mon} {fmt.num(t.iva)} · c/IVA {mon} {fmt.num(t.con_iva)}", F["sub"], C["ink"])
+        if cond.moneda == "usd":
+            agregar(f"Pago: $ {fmt.num(pl.usd)} en dólares · Bs {fmt.num(pl.bs_total)} a BCV (IVA Bs {fmt.num(pl.bs_iva)})", F["sub"], C["mut"])
+        else:
+            agregar(f"Pago: Bs {fmt.num(pl.bs_total)} (IVA Bs {fmt.num(pl.bs_iva)})", F["sub"], C["mut"])
+        if pl.igtf:
+            agregar(f"IGTF {cond.igtf_pct:g}%: $ {fmt.num(pl.igtf)} (incluido en el costo)", F["sub"], C["mut"])
+        if pl.retencion_pct:
+            agregar(f"Retención IVA {pl.retencion_pct:g}%: Bs {fmt.num(pl.bs_iva_retenido)} al SENIAT · "
+                    f"al proveedor Bs {fmt.num(pl.bs_al_proveedor)}", F["sub"], C["mut"])
+        agregar(f"Gasto total $ interno {fmt.num(pl.gasto_int)} · {fmt.num(pl.gasto_int / t.kg if t.kg else float('nan'), 4)} $/kg", F["bold"], C["ink"])
+    sum_h, foot_h = (84 + 20 + 40 * len(lineas_res) + 36 if t.lineas else 110), 110
     H = head_h + sum_h + sum(b[3] + 20 for b in bloques) + foot_h
     img = Image.new("RGB", (W, H), C["bg"])
     d = ImageDraw.Draw(img)
@@ -328,15 +349,10 @@ def imagen(res: Resultado, p: Parametros, prov: Proveedor, cond: Condiciones, hi
         d.text((x + 20, y + 12), str(cnt.get(k, 0)), font=F["cnt"], fill=C[k][1])
         d.text((x + 80, y + 18), k, font=F["tag"], fill=C[k][1])
     if t.lineas:
-        d.rounded_rectangle([P, y + 84, P + IW, y + 224], 12, fill=C["panel"], outline=C["line"], width=2)
-        l1 = f"{fmt.num(t.kg / 1000)} t · Total s/IVA {mon} {fmt.num(t.sin_iva)} · IVA {mon} {fmt.num(t.iva)} · c/IVA {mon} {fmt.num(t.con_iva)}"
-        l2 = (f"Pago: $ {fmt.num(pl.usd)} en dólares · Bs {fmt.num(pl.bs_total)} a BCV (IVA Bs {fmt.num(pl.bs_iva)})"
-              + (f" · IGTF $ {fmt.num(pl.igtf)}" if pl.igtf else "")
-              if cond.moneda == "usd" else f"Pago: Bs {fmt.num(pl.bs_total)} (IVA Bs {fmt.num(pl.bs_iva)})")
-        l3 = f"Gasto total $ interno {fmt.num(pl.gasto_int)} · {fmt.num(pl.gasto_int / t.kg if t.kg else float('nan'), 4)} $/kg"
-        d.text((P + 20, y + 100), _envolver(d, l1, F["sub"], IW - 40)[0], font=F["sub"], fill=C["ink"])
-        d.text((P + 20, y + 140), _envolver(d, l2, F["sub"], IW - 40)[0], font=F["sub"], fill=C["mut"])
-        d.text((P + 20, y + 180), l3, font=F["bold"], fill=C["ink"])
+        alto_caja = 20 + 40 * len(lineas_res)
+        d.rounded_rectangle([P, y + 84, P + IW, y + 84 + alto_caja], 12, fill=C["panel"], outline=C["line"], width=2)
+        for k, (texto, fuente, color) in enumerate(lineas_res):
+            d.text((P + 20, y + 100 + 40 * k), texto, font=fuente, fill=color)
 
     y = head_h + sum_h
     for r, nl, ult, alto in bloques:

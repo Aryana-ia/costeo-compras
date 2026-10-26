@@ -199,6 +199,7 @@ def _reconstruir(det: pd.DataFrame, proveedores: list[Proveedor]) -> dict:
         "iva_base": "10" if "sobre el 10%" in iva_txt else "100",
         "iva_sin_descuento": "sin descuento" in iva_txt,
         "igtf": "IGTF" in str(f0.get("Forma de pago", "")),
+        "retencion_iva": "retención" in iva_txt,
         "descuentos": descs, "flete": _num(f0.get("Flete")), "flete_moneda": f0.get("Moneda flete") or "usd",
     })
     tasa = iva / 100 * (0.10 if cond.iva_base == "10" else 1)

@@ -211,3 +211,22 @@ def test_igtf_desactivado_no_cambia_nada():
     sin = calcular(params(), Condiciones(moneda="usd"), [cabilla_media(precio=100)]).lineas[0]
     con_pct = calcular(params(), Condiciones(moneda="usd", igtf=False, igtf_pct=10), [cabilla_media(precio=100)]).lineas[0]
     assert sin.costo_pieza == pytest.approx(con_pct.costo_pieza)
+
+
+# --------------------------------------------------------------------------- retención de IVA
+def test_retencion_es_informativa_y_no_cambia_el_costo():
+    sin = calcular(params(), Condiciones(moneda="usd"), [cabilla_media(cant=10, precio=100)])
+    con = calcular(params(), Condiciones(moneda="usd", retencion_iva=True), [cabilla_media(cant=10, precio=100)])
+    assert con.lineas[0].costo_pieza == pytest.approx(sin.lineas[0].costo_pieza)   # el costo lleva el 100 % del IVA
+    assert con.plan.gasto_int == pytest.approx(sin.plan.gasto_int)
+    iva_bs = 10 * 100 * 0.16 * BCV
+    assert con.plan.bs_iva == pytest.approx(iva_bs)
+    assert con.plan.bs_iva_retenido == pytest.approx(iva_bs * 0.75)          # al SENIAT
+    assert con.plan.bs_iva_proveedor == pytest.approx(iva_bs * 0.25)         # al proveedor
+    assert sin.plan.bs_iva_retenido == 0
+
+
+def test_retencion_con_porcentaje_distinto_y_en_bolivares():
+    res = calcular(params(), Condiciones(moneda="bs", retencion_iva=True, retencion_pct=100), [cabilla_media(cant=1, precio=1000)])
+    assert res.plan.bs_iva_proveedor == pytest.approx(0)
+    assert res.plan.bs_al_proveedor == pytest.approx(res.plan.bs_base)

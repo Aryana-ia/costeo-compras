@@ -486,6 +486,7 @@ with tab_costeo:
             "toneladas": float(c.toneladas), "flete_carga_real": c.flete_carga_real,
             "descuentos": "; ".join(fmt.num(d).rstrip("0").rstrip(",") for d in c.descuentos),
             "igtf": c.igtf, "igtf_pct": float(c.igtf_pct),
+            "retencion_iva": c.retencion_iva, "retencion_pct": float(c.retencion_pct),
         }
 
 
@@ -527,6 +528,12 @@ with tab_costeo:
     g2.selectbox("Precio cotizado por", list(PRECIO_POR), format_func=PRECIO_POR.get, key=k("precio_por"))
     g3.selectbox("¿El precio incluye IVA?", [False, True], format_func=lambda v: "Sí, viene con IVA" if v else "No, viene sin IVA", key=k("iva_incluido"))
     g4.selectbox("IVA calculado sobre", list(IVA_BASE), format_func=IVA_BASE.get, key=k("iva_base"))
+    r1, r2 = st.columns([2, 1], vertical_alignment="bottom")
+    r1.toggle("Aplicamos retención de IVA (solo informativo)", key=k("retencion_iva"),
+              help="Del IVA solo se le paga al proveedor la parte no retenida; lo retenido se entera al SENIAT. "
+                   "El costo siempre lleva el 100% del IVA.")
+    if valor("retencion_iva"):
+        r2.number_input("Retención %", min_value=0.0, max_value=100.0, step=5.0, key=k("retencion_pct"))
 
     if valor("moneda") == "usd":
         h1, h2 = st.columns(2)
@@ -568,6 +575,7 @@ with tab_costeo:
             flete=valor("flete"), flete_moneda=valor("flete_moneda"), toneladas=valor("toneladas"),
             flete_carga_real=valor("flete_carga_real"), descuentos=leer_descuentos(valor("descuentos")),
             igtf=valor("igtf"), igtf_pct=valor("igtf_pct"),
+            retencion_iva=valor("retencion_iva"), retencion_pct=valor("retencion_pct"),
         )
     except ErrorDeDatos as e:
         st.error(str(e))
@@ -749,15 +757,22 @@ with tab_costeo:
                 f"| Base en dólares | $ {fmt.num(pl.usd)} |\n"
                 f"| Base en Bs a BCV | Bs {fmt.num(pl.bs_base)} <br><small>$ {fmt.num(pl.usd_base_en_bs)} × {fmt.num(params.tasa_bcv)}</small> |\n"
                 f"| IVA en Bs a BCV | Bs {fmt.num(pl.bs_iva)} <br><small>$ {fmt.num(pl.usd_iva)} × {fmt.num(params.tasa_bcv)}</small> |\n"
-                f"| **Total en bolívares** | **Bs {fmt.num(pl.bs_total)}** |\n"
-                f"| Flete | $ int. {fmt.num(pl.flete_int)} |\n"
+                + (f"| ↳ Retención IVA {pl.retencion_pct:g}% (al SENIAT) | Bs {fmt.num(pl.bs_iva_retenido)} |\n"
+                   f"| ↳ IVA al proveedor ({100 - pl.retencion_pct:g}%) | Bs {fmt.num(pl.bs_iva_proveedor)} |\n" if pl.retencion_pct else "")
+                + f"| **Total en bolívares** | **Bs {fmt.num(pl.bs_total)}** |\n"
+                + (f"| ↳ De eso, al proveedor | Bs {fmt.num(pl.bs_al_proveedor)} |\n" if pl.retencion_pct else "")
+                + f"| Flete | $ int. {fmt.num(pl.flete_int)} |\n"
                 + (f"| IGTF {cond.igtf_pct:g}% (sobre $ {fmt.num(pl.usd)}) | $ {fmt.num(pl.igtf)} |\n" if cond.igtf else "")
                 + f"| **Gasto total en $ interno** | **$ {fmt.num(pl.gasto_int)}** |\n"), unsafe_allow_html=True)
             st.caption(md(f"{describir_pago(cond)}. Los Bs se llevan a $ interno dividiendo entre {fmt.num(params.tasa_interna)}."))
         else:
             st.markdown(md(
                 f"| Concepto | Monto |\n|---|---:|\n| Base | Bs {fmt.num(pl.bs_base)} |\n| IVA | Bs {fmt.num(pl.bs_iva)} |\n"
-                f"| **Total en bolívares** | **Bs {fmt.num(pl.bs_total)}** |\n| Flete | $ int. {fmt.num(pl.flete_int)} |\n"
+                + (f"| ↳ Retención IVA {pl.retencion_pct:g}% (al SENIAT) | Bs {fmt.num(pl.bs_iva_retenido)} |\n"
+                   f"| ↳ IVA al proveedor ({100 - pl.retencion_pct:g}%) | Bs {fmt.num(pl.bs_iva_proveedor)} |\n" if pl.retencion_pct else "")
+                + f"| **Total en bolívares** | **Bs {fmt.num(pl.bs_total)}** |\n"
+                + (f"| ↳ De eso, al proveedor | Bs {fmt.num(pl.bs_al_proveedor)} |\n" if pl.retencion_pct else "")
+                + f"| Flete | $ int. {fmt.num(pl.flete_int)} |\n"
                 f"| **Gasto total en $ interno** | **$ {fmt.num(pl.gasto_int)}** |\n"))
             st.caption(f"Bolívares ÷ tasa interna {fmt.num(params.tasa_interna)}.")
 

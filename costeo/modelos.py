@@ -104,6 +104,8 @@ class Condiciones:
     descuentos: list[float] = field(default_factory=list)  # % en cascada, sobre la base
     igtf: bool = False               # se paga IGTF sobre la parte de la base pagada en dólares
     igtf_pct: float = 3.0
+    retencion_iva: bool = False      # informativo: parte del IVA se retiene y se entera al SENIAT
+    retencion_pct: float = 75.0
 
     def __post_init__(self) -> None:
         self.validar()
@@ -128,6 +130,8 @@ class Condiciones:
         self.descuentos = [d for d in (_num(x) for x in (self.descuentos or [])) if d]
         self.igtf = bool(self.igtf)
         self.igtf_pct = _num(self.igtf_pct, 3.0)
+        self.retencion_iva = bool(self.retencion_iva)
+        self.retencion_pct = _num(self.retencion_pct, 75.0)
 
     def a_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -147,6 +151,7 @@ class Condiciones:
             round(self.flete, 6), self.flete_moneda, round(self.toneladas, 6),
             bool(self.flete_carga_real), tuple(round(d, 6) for d in self.descuentos),
             bool(self.igtf), round(self.igtf_pct, 6) if self.igtf else 0.0,
+            bool(self.retencion_iva), round(self.retencion_pct, 6) if self.retencion_iva else 0.0,
         )
 
 
@@ -234,6 +239,21 @@ class PlanDePago:
     bs_iva: float = 0.0
     flete_int: float = 0.0       # flete completo en $ interno
     igtf: float = 0.0            # IGTF pagado (en $)
+    retencion_pct: float = 0.0   # % del IVA que se retiene (informativo, no cambia el costo)
+
+    @property
+    def bs_iva_retenido(self) -> float:
+        """IVA que se retiene y se entera al SENIAT (no se le paga al proveedor)."""
+        return self.bs_iva * self.retencion_pct / 100
+
+    @property
+    def bs_iva_proveedor(self) -> float:
+        """IVA que sí se le paga al proveedor."""
+        return self.bs_iva - self.bs_iva_retenido
+
+    @property
+    def bs_al_proveedor(self) -> float:
+        return self.bs_base + self.bs_iva_proveedor
     gasto_int: float = 0.0       # todo lo pagado, en $ interno
 
     @property

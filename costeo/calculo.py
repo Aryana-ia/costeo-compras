@@ -252,6 +252,7 @@ def calcular(p: Parametros, cond: Condiciones, lineas: list[Linea]) -> Resultado
     # no el monto fijo de una gandola: así el gasto total cuadra con el costo de las piezas.
     plan.flete_int = tot.flete_asignado
     plan.igtf = tot.igtf
+    plan.retencion_pct = cond.retencion_pct if cond.retencion_iva else 0.0  # solo informativo
     plan.gasto_int = tot.base_int + (tot.iva_int if p.iva_en_costo else 0.0) + tot.flete_asignado + tot.igtf
     if cond.igtf and cond.moneda == "bs":
         avisos.append("El IGTF está activado, pero la cotización es en bolívares: no hay base en dólares, así que no se cobra.")
@@ -281,4 +282,6 @@ def describir_iva(cond: Condiciones, iva: float) -> str:
     base = f"IVA {iva:g}% sobre el 10%" if cond.iva_base == "10" else f"IVA {iva:g}%"
     if cond.iva_sin_descuento and cond.descuentos:
         base += " sin descuento (full)"
+    if cond.retencion_iva:
+        base += f" · retención {cond.retencion_pct:g}%"
     return ("Precio con IVA" if cond.iva_incluido else "Precio sin IVA") + " · " + base
