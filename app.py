@@ -783,12 +783,18 @@ with tab_costeo:
                 (f"Retención {pl.retencion_pct:g}% (se entera al SENIAT)", pl.bs_iva_retenido),
                 (f"IVA al proveedor ({100 - pl.retencion_pct:g}%)", pl.bs_iva_proveedor),
                 ("IVA total", pl.bs_iva),
+                ("Bolívares al proveedor (base en Bs + IVA no retenido)", pl.bs_al_proveedor),
             ]
             st.markdown(md(
                 "| Concepto | Bolívares | Dólares a tasa BCV | Dólares a tasa interna |\n|---|---:|---:|---:|\n"
                 + "".join(f"| {'**' + c + '**' if i == 0 else c} | Bs {fmt.num(v)} | "
                           f"{'**' if i == 0 else ''}$ {fmt.num(pl.en_dolares(v)[0])}{'**' if i == 0 else ''} | "
                           f"$ {fmt.num(pl.en_dolares(v)[1])} |\n" for i, (c, v) in enumerate(filas_ret))))
+            al_bcv, al_int = pl.en_dolares(pl.bs_al_proveedor)
+            st.markdown(md(
+                f"**Total al proveedor:** "
+                + (f"$ {fmt.num(pl.usd)} en dólares + " if pl.usd else "")
+                + f"Bs {fmt.num(pl.bs_al_proveedor)} (= $ {fmt.num(al_bcv)} a BCV · $ {fmt.num(al_int)} interno)"))
 
     # Costeo de esta sesión (mismo proveedor y fecha): si ya se guardó, se actualiza en vez de duplicarse,
     # y sus filas no se muestran como «última compra» de sí mismo.
