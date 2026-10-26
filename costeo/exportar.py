@@ -41,6 +41,7 @@ def tabla(res: Resultado, p: Parametros, prov: Proveedor, cond: Condiciones, his
             "Base $ int.": r.base_int,
             "IVA $ int.": r.iva_int,
             "Flete $ int.": r.flete_pieza,
+            "IGTF $": r.igtf_pieza,
             "Costo pieza $": r.costo_pieza,
             "Costo kg $": r.costo_kg,
             f"Pieza +{p.margen_min:g}%": r.costo_min,
@@ -86,6 +87,7 @@ def resumen_pago(res: Resultado, p: Parametros, prov: Proveedor, cond: Condicion
         ("IVA pagado en Bs", pl.bs_iva),
         ("Total en Bs", pl.bs_total),
         ("Flete ($ interno)", pl.flete_int),
+        ("IGTF ($)", pl.igtf),
         ("Gasto total ($ interno)", pl.gasto_int),
         ("Gasto por kilo ($ interno)", pl.gasto_int / t.kg if t.kg else None),
     ]
@@ -329,6 +331,7 @@ def imagen(res: Resultado, p: Parametros, prov: Proveedor, cond: Condiciones, hi
         d.rounded_rectangle([P, y + 84, P + IW, y + 224], 12, fill=C["panel"], outline=C["line"], width=2)
         l1 = f"{fmt.num(t.kg / 1000)} t · Total s/IVA {mon} {fmt.num(t.sin_iva)} · IVA {mon} {fmt.num(t.iva)} · c/IVA {mon} {fmt.num(t.con_iva)}"
         l2 = (f"Pago: $ {fmt.num(pl.usd)} en dólares · Bs {fmt.num(pl.bs_total)} a BCV (IVA Bs {fmt.num(pl.bs_iva)})"
+              + (f" · IGTF $ {fmt.num(pl.igtf)}" if pl.igtf else "")
               if cond.moneda == "usd" else f"Pago: Bs {fmt.num(pl.bs_total)} (IVA Bs {fmt.num(pl.bs_iva)})")
         l3 = f"Gasto total $ interno {fmt.num(pl.gasto_int)} · {fmt.num(pl.gasto_int / t.kg if t.kg else float('nan'), 4)} $/kg"
         d.text((P + 20, y + 100), _envolver(d, l1, F["sub"], IW - 40)[0], font=F["sub"], fill=C["ink"])

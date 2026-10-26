@@ -485,6 +485,7 @@ with tab_costeo:
             "pago": c.pago, "pago_valor": float(c.pago_valor), "flete": float(c.flete), "flete_moneda": c.flete_moneda,
             "toneladas": float(c.toneladas), "flete_carga_real": c.flete_carga_real,
             "descuentos": "; ".join(fmt.num(d).rstrip("0").rstrip(",") for d in c.descuentos),
+            "igtf": c.igtf, "igtf_pct": float(c.igtf_pct),
         }
 
 
@@ -535,6 +536,11 @@ with tab_costeo:
         elif valor("pago") == "monto":
             h2.number_input("Monto pagado en dólares ($)", min_value=0.0, step=500.0, key=k("pago_valor"),
                             help="Ejemplo COMPLEJO: si la gandola cuesta 31.500 y 13.000 se pagan en $, escribe 13000. El resto se paga en Bs a BCV.")
+        i1, i2 = st.columns([2, 1], vertical_alignment="bottom")
+        i1.toggle("Pagar IGTF sobre la parte pagada en dólares", key=k("igtf"),
+                  help="Impuesto a las Grandes Transacciones Financieras: se suma al costo el % sobre la base pagada en $.")
+        if valor("igtf"):
+            i2.number_input("IGTF %", min_value=0.0, max_value=100.0, step=0.5, key=k("igtf_pct"))
         st.caption(md("El IVA de una cotización en dólares se paga siempre en Bs a tasa BCV: para el costo se lleva a $ con × BCV ÷ interna."))
     else:
         st.caption("Cotización en bolívares: la base y el IVA se dividen entre la tasa interna.")
@@ -561,6 +567,7 @@ with tab_costeo:
             iva_base=valor("iva_base"), iva_sin_descuento=valor("iva_sin_descuento"), pago=valor("pago"), pago_valor=valor("pago_valor"),
             flete=valor("flete"), flete_moneda=valor("flete_moneda"), toneladas=valor("toneladas"),
             flete_carga_real=valor("flete_carga_real"), descuentos=leer_descuentos(valor("descuentos")),
+            igtf=valor("igtf"), igtf_pct=valor("igtf_pct"),
         )
     except ErrorDeDatos as e:
         st.error(str(e))
@@ -744,7 +751,8 @@ with tab_costeo:
                 f"| IVA en Bs a BCV | Bs {fmt.num(pl.bs_iva)} <br><small>$ {fmt.num(pl.usd_iva)} × {fmt.num(params.tasa_bcv)}</small> |\n"
                 f"| **Total en bolívares** | **Bs {fmt.num(pl.bs_total)}** |\n"
                 f"| Flete | $ int. {fmt.num(pl.flete_int)} |\n"
-                f"| **Gasto total en $ interno** | **$ {fmt.num(pl.gasto_int)}** |\n"), unsafe_allow_html=True)
+                + (f"| IGTF {cond.igtf_pct:g}% (sobre $ {fmt.num(pl.usd)}) | $ {fmt.num(pl.igtf)} |\n" if cond.igtf else "")
+                + f"| **Gasto total en $ interno** | **$ {fmt.num(pl.gasto_int)}** |\n"), unsafe_allow_html=True)
             st.caption(md(f"{describir_pago(cond)}. Los Bs se llevan a $ interno dividiendo entre {fmt.num(params.tasa_interna)}."))
         else:
             st.markdown(md(
@@ -804,6 +812,8 @@ with tab_costeo:
                 (f"IVA a $ interno: {'÷ interna' if cond.moneda == 'bs' else 'Bs a BCV'} (× {fmt.num(res.factor_iva, 4)})"
                  + ("" if iva_costo else " · no se suma"), ("+ " if iva_costo else "") + fmt.num(r.iva_int, 4)),
                 (f"Flete: {fmt.num(res.flete_kg, 4)} $/kg × {fmt.num(ln.peso)} kg", "+ " + fmt.num(r.flete_pieza, 4)),
+                *([(f"IGTF {cond.igtf_pct:g}% sobre la base pagada en $ ({fmt.num(r.pieza_sin_iva * (res.porcion_divisa or 0), 4)})",
+                    "+ " + fmt.num(r.igtf_pieza, 4))] if cond.igtf and r.igtf_pieza else []),
                 ("**Costo por pieza ($ interno)**", f"**{fmt.num(r.costo_pieza, 4)}**"),
                 ("**Costo por kilo**", f"**{fmt.num(r.costo_kg, 4)}**"),
                 (f"Costo × {1 + m_min / 100:g} · por kilo", f"{fmt.num(r.costo_min, 4)} · {fmt.num(r.kg_min, 4)}"),

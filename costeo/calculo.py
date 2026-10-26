@@ -21,6 +21,7 @@ Pasos, idénticos para todos los proveedores
        - mixto (UNICOM 50/50, COMPLEJO monto fijo)  → parte en $ × 1 + resto × BCV ÷ interna
        - el IVA SIEMPRE se paga en Bs a tasa BCV     → × BCV ÷ interna
 
+6b. IGTF (si aplica): % (3 % por defecto) sobre la parte de la base pagada en dólares.
 6. Flete como TARIFA POR KILO: monto de una gandola en $ interno ÷ 32.000 kg
    × peso de la pieza. Ej.: 300 $ ÷ 32.000 = 0,009375 $/kg → un pedido de 40 t
    lleva 375 $ de flete y uno de 20 t, 187,50 $. (Opcional: cobrar la gandola
@@ -198,7 +199,9 @@ def calcular(p: Parametros, cond: Condiciones, lineas: list[Linea]) -> Resultado
         r.base_int = r.pieza_sin_iva * factor_base
         r.iva_int = r.iva_pieza * factor_iva
         r.flete_pieza = flete_kg * ln.peso
-        r.costo_pieza = r.base_int + (r.iva_int if p.iva_en_costo else 0.0) + r.flete_pieza
+        # IGTF: % sobre la parte de la base que se paga en dólares (no aplica al IVA ni a lo pagado en Bs)
+        r.igtf_pieza = r.pieza_sin_iva * porcion * cond.igtf_pct / 100 if cond.igtf and porcion else 0.0
+        r.costo_pieza = r.base_int + (r.iva_int if p.iva_en_costo else 0.0) + r.flete_pieza + r.igtf_pieza
         r.costo_kg = r.costo_pieza / ln.peso
         r.costo_min = r.costo_pieza * (1 + m_min)
         r.costo_obj = r.costo_pieza * (1 + m_obj)
@@ -231,6 +234,7 @@ def calcular(p: Parametros, cond: Condiciones, lineas: list[Linea]) -> Resultado
         base_int=total_sin * factor_base,
         iva_int=total_iva * factor_iva,
         flete_asignado=sum(r.flete_pieza * r.linea.cantidad for r in validas),
+        igtf=sum(r.igtf_pieza * r.linea.cantidad for r in validas),
         costo=sum(r.costo_pieza * r.linea.cantidad for r in validas),
     )
     if cond.moneda == "bs":
@@ -247,7 +251,10 @@ def calcular(p: Parametros, cond: Condiciones, lineas: list[Linea]) -> Resultado
     # El flete del pedido es la tarifa por kilo × los kilos pedidos (lo mismo que suman los productos),
     # no el monto fijo de una gandola: así el gasto total cuadra con el costo de las piezas.
     plan.flete_int = tot.flete_asignado
-    plan.gasto_int = tot.base_int + (tot.iva_int if p.iva_en_costo else 0.0) + tot.flete_asignado
+    plan.igtf = tot.igtf
+    plan.gasto_int = tot.base_int + (tot.iva_int if p.iva_en_costo else 0.0) + tot.flete_asignado + tot.igtf
+    if cond.igtf and cond.moneda == "bs":
+        avisos.append("El IGTF está activado, pero la cotización es en bolívares: no hay base en dólares, así que no se cobra.")
 
     return Resultado(
         lineas=res, totales=tot, plan=plan, factor_base=factor_base, factor_iva=factor_iva,
@@ -261,12 +268,13 @@ def describir_pago(cond: Condiciones) -> str:
     if cond.moneda == "bs":
         return "Pago en Bs (÷ tasa interna)"
     v = cond.pago_valor
+    igtf = f" · IGTF {cond.igtf_pct:g}%" if cond.igtf else ""
     return {
         "divisa": "100% en $ o Bs a tasa interna",
         "bcv": "100% en Bs a tasa BCV",
         "pct": f"{v:g}% en $ · {100 - v:g}% en Bs a BCV",
         "monto": f"$ {_n(v)} en $ · resto en Bs a BCV",
-    }[cond.pago]
+    }[cond.pago] + igtf
 
 
 def describir_iva(cond: Condiciones, iva: float) -> str:

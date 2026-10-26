@@ -53,8 +53,9 @@ Todo se lleva a **dólares a tasa interna** (“$ interno”), que es la unidad 
 | 5a | Base a $ interno | Parte pagada en $ (o Bs a tasa interna): `× 1` · parte pagada en Bs a BCV: `× BCV ÷ interna` |
 | 5b | IVA a $ interno | Cotización en $: el IVA **siempre** se paga en Bs a BCV → `× BCV ÷ interna` |
 | 5c | Cotización en Bs | Base e IVA `÷ interna` |
+| 5d | IGTF (si se activa) | `3 % × parte de la base pagada en dólares` (base con descuentos). No aplica al IVA ni a lo pagado en Bs. Se suma al costo. |
 | 6 | Flete (tarifa por kilo) | `flete de una gandola ÷ 32.000 kg × peso de la pieza`. Ej.: 300 $ ÷ 32.000 = 0,009375 $/kg → 40 t pagan 375 $, 20 t pagan 187,50 $ |
-| 7 | Costo | `costo pieza = base + IVA + flete` · `costo kilo = costo pieza ÷ peso` |
+| 7 | Costo | `costo pieza = base + IVA + flete + IGTF` · `costo kilo = costo pieza ÷ peso` |
 | 8 | Precio estimado | `costo × 1,17` y `costo × 1,18` |
 | 9 | Decisión | P3 < costo+17 % → **SUBIR** · entre 17 % y 18 % → **REVISAR** · P3 ≥ costo+18 % → **MANTENER** |
 | 10 | P3 sugerido | `costo × 1,18`, redondeado **hacia arriba** a 4 decimales |

@@ -180,3 +180,34 @@ def test_errores_de_datos():
 def test_redondeo_hacia_arriba():
     assert redondear_arriba(1.23451) == 1.2346
     assert redondear_arriba(1.2345) == 1.2345
+
+
+# --------------------------------------------------------------------------- IGTF
+def test_igtf_3_por_ciento_de_la_base_pagada_en_dolares():
+    cond = Condiciones(moneda="usd", pago="divisa", igtf=True)
+    r = calcular(params(), cond, [cabilla_media(precio=100)]).lineas[0]
+    assert r.igtf_pieza == pytest.approx(3.0)                       # 3 % de 100
+    assert r.costo_pieza == pytest.approx(100 + 16 * F + 3.0)       # base + IVA + IGTF (sin flete)
+
+
+def test_igtf_solo_sobre_la_parte_en_dolares_unicom():
+    cond = Condiciones(moneda="usd", pago="pct", pago_valor=50, igtf=True, descuentos=[10])
+    res = calcular(params(), cond, [cabilla_media(cant=10, precio=100)])
+    r = res.lineas[0]
+    assert r.igtf_pieza == pytest.approx(90 * 0.5 * 0.03)           # descuento primero, luego solo el 50 % en $
+    assert res.plan.igtf == pytest.approx(r.igtf_pieza * 10)
+    assert res.plan.gasto_int == pytest.approx(res.totales.costo)
+
+
+def test_igtf_no_aplica_si_todo_se_paga_en_bs():
+    cond = Condiciones(moneda="usd", pago="bcv", igtf=True)
+    assert calcular(params(), cond, [cabilla_media(precio=100)]).lineas[0].igtf_pieza == 0
+    cond_bs = Condiciones(moneda="bs", igtf=True)
+    res = calcular(params(), cond_bs, [cabilla_media(precio=1000)])
+    assert res.lineas[0].igtf_pieza == 0 and any("IGTF" in a for a in res.avisos)
+
+
+def test_igtf_desactivado_no_cambia_nada():
+    sin = calcular(params(), Condiciones(moneda="usd"), [cabilla_media(precio=100)]).lineas[0]
+    con_pct = calcular(params(), Condiciones(moneda="usd", igtf=False, igtf_pct=10), [cabilla_media(precio=100)]).lineas[0]
+    assert sin.costo_pieza == pytest.approx(con_pct.costo_pieza)

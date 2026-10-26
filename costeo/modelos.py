@@ -102,6 +102,8 @@ class Condiciones:
     toneladas: float = 32.0          # toneladas por gandola
     flete_carga_real: bool = False   # repartir el flete sobre los kg reales del pedido
     descuentos: list[float] = field(default_factory=list)  # % en cascada, sobre la base
+    igtf: bool = False               # se paga IGTF sobre la parte de la base pagada en dólares
+    igtf_pct: float = 3.0
 
     def __post_init__(self) -> None:
         self.validar()
@@ -124,6 +126,8 @@ class Condiciones:
         self.flete = _num(self.flete)
         self.toneladas = _num(self.toneladas, 32.0) or 32.0
         self.descuentos = [d for d in (_num(x) for x in (self.descuentos or [])) if d]
+        self.igtf = bool(self.igtf)
+        self.igtf_pct = _num(self.igtf_pct, 3.0)
 
     def a_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -142,6 +146,7 @@ class Condiciones:
             self.pago, round(self.pago_valor, 6) if usa_valor else 0.0,
             round(self.flete, 6), self.flete_moneda, round(self.toneladas, 6),
             bool(self.flete_carga_real), tuple(round(d, 6) for d in self.descuentos),
+            bool(self.igtf), round(self.igtf_pct, 6) if self.igtf else 0.0,
         )
 
 
@@ -199,6 +204,7 @@ class ResultadoLinea:
     base_int: float = float("nan")
     iva_int: float = float("nan")
     flete_pieza: float = float("nan")
+    igtf_pieza: float = 0.0             # IGTF por pieza, en $
     costo_pieza: float = float("nan")
     costo_kg: float = float("nan")
     # Precio estimado y decisión
@@ -227,6 +233,7 @@ class PlanDePago:
     bs_base: float = 0.0
     bs_iva: float = 0.0
     flete_int: float = 0.0       # flete completo en $ interno
+    igtf: float = 0.0            # IGTF pagado (en $)
     gasto_int: float = 0.0       # todo lo pagado, en $ interno
 
     @property
@@ -244,6 +251,7 @@ class Totales:
     base_int: float = 0.0
     iva_int: float = 0.0
     flete_asignado: float = 0.0
+    igtf: float = 0.0
     costo: float = 0.0
 
     @property
