@@ -7,14 +7,14 @@
       "precio_por": "pieza",
       "iva_incluido": false,
       "iva_base": "100",
+      "iva_sin_descuento": false,
       "pago": "pct",
-      "pago_valor": 50,
-      "flete": 0,
+      "pago_valor": 50.0,
+      "flete": 0.0,
       "flete_moneda": "usd",
-      "toneladas": 32,
+      "toneladas": 32.0,
       "flete_carga_real": false,
-      "descuentos": [],
-      "iva_sin_descuento": false
+      "descuentos": []
     }
   },
   {
@@ -25,14 +25,14 @@
       "precio_por": "pieza",
       "iva_incluido": false,
       "iva_base": "100",
+      "iva_sin_descuento": false,
       "pago": "monto",
-      "pago_valor": 13000,
-      "flete": 0,
+      "pago_valor": 13000.0,
+      "flete": 0.0,
       "flete_moneda": "usd",
-      "toneladas": 32,
+      "toneladas": 32.0,
       "flete_carga_real": false,
-      "descuentos": [],
-      "iva_sin_descuento": false
+      "descuentos": []
     }
   },
   {
@@ -45,10 +45,28 @@
       "iva_base": "100",
       "iva_sin_descuento": true,
       "pago": "divisa",
-      "pago_valor": 0,
-      "flete": 0,
+      "pago_valor": 0.0,
+      "flete": 0.0,
       "flete_moneda": "usd",
-      "toneladas": 32,
+      "toneladas": 32.0,
+      "flete_carga_real": false,
+      "descuentos": []
+    }
+  },
+  {
+    "id": "p_ca8e30dd",
+    "nombre": "SIDOR",
+    "condiciones": {
+      "moneda": "usd",
+      "precio_por": "pieza",
+      "iva_incluido": false,
+      "iva_base": "100",
+      "iva_sin_descuento": false,
+      "pago": "pct",
+      "pago_valor": 50.0,
+      "flete": 0.0,
+      "flete_moneda": "usd",
+      "toneladas": 32.0,
       "flete_carga_real": false,
       "descuentos": []
     }
