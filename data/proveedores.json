@@ -32,7 +32,7 @@
       "iva_sin_descuento": false,
       "pago": "monto",
       "pago_valor": 13000.0,
-      "flete": 0.0,
+      "flete": 500.0,
       "flete_moneda": "usd",
       "toneladas": 32.0,
       "flete_carga_real": false,
