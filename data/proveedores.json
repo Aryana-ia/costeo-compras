@@ -30,7 +30,7 @@
       "iva_incluido": false,
       "iva_base": "100",
       "iva_sin_descuento": false,
-      "pago": "monto",
+      "pago": "monto_gandola",
       "pago_valor": 13000.0,
       "flete": 500.0,
       "flete_moneda": "usd",
