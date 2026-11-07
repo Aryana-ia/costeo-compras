@@ -180,6 +180,29 @@ def calcular(p: Parametros, cond: Condiciones, lineas: list[Linea]) -> Resultado
                     f"({_n(total_sin)}): se toma el 100 % en dólares."
                 )
             porcion = min(max(v / total_sin, 0.0), 1.0) if total_sin > 0 else 0.0
+        if cond.pago == "monto_gandola":
+            # Cada producto viaja en su(s) gandola(s): por cada gandola se paga un monto fijo en $
+            # y el resto de la base de ESE producto se paga en Bs a BCV.
+            v = cond.pago_valor
+            if v <= 0:
+                avisos.append("Indica el monto en dólares que se paga por gandola.")
+            usd_total = 0.0
+            for r in validas:
+                g = r.linea.gandolas if _ok(r.linea.gandolas) and r.linea.gandolas > 0 else 1.0
+                pedido = v * g
+                if pedido > r.total_sin_iva:
+                    avisos.append(
+                        f"{r.linea.descripcion}: el monto en dólares ({_n(pedido)} por {g:g} gandola(s)) es mayor que "
+                        f"su total sin IVA ({_n(r.total_sin_iva)}): esa línea se toma 100 % en dólares."
+                    )
+                r.usd_linea = min(max(pedido, 0.0), r.total_sin_iva)
+                r.porcion_divisa = r.usd_linea / r.total_sin_iva if r.total_sin_iva > 0 else 0.0
+                usd_total += r.usd_linea
+            porcion = usd_total / total_sin if total_sin > 0 else 0.0  # promedio, para mostrar
+        else:
+            for r in validas:
+                r.porcion_divisa = porcion
+                r.usd_linea = r.total_sin_iva * porcion
         factor_base = porcion + (1 - porcion) * f_bcv
 
     # -- Paso 6: flete --------------------------------------------------------
@@ -196,11 +219,13 @@ def calcular(p: Parametros, cond: Condiciones, lineas: list[Linea]) -> Resultado
         if not _ok(r.pieza_sin_iva):
             continue
         ln = r.linea
-        r.base_int = r.pieza_sin_iva * factor_base
+        # Parte de la base pagada en $ de esta línea (en «por gandola» cambia de una línea a otra)
+        p_linea = None if porcion is None else (r.porcion_divisa if _ok(r.porcion_divisa) else porcion)
+        r.base_int = r.pieza_sin_iva * (factor_base if p_linea is None else p_linea + (1 - p_linea) * f_bcv)
         r.iva_int = r.iva_pieza * factor_iva
         r.flete_pieza = flete_kg * ln.peso
         # IGTF: % sobre la parte de la base que se paga en dólares (no aplica al IVA ni a lo pagado en Bs)
-        r.igtf_pieza = r.pieza_sin_iva * porcion * cond.igtf_pct / 100 if cond.igtf and porcion else 0.0
+        r.igtf_pieza = r.pieza_sin_iva * p_linea * cond.igtf_pct / 100 if cond.igtf and p_linea else 0.0
         r.costo_pieza = r.base_int + (r.iva_int if p.iva_en_costo else 0.0) + r.flete_pieza + r.igtf_pieza
         r.costo_kg = r.costo_pieza / ln.peso
         r.costo_min = r.costo_pieza * (1 + m_min)
@@ -276,6 +301,7 @@ def describir_pago(cond: Condiciones) -> str:
         "bcv": "100% en Bs a tasa BCV",
         "pct": f"{v:g}% en $ · {100 - v:g}% en Bs a BCV",
         "monto": f"$ {_n(v)} en $ · resto en Bs a BCV",
+        "monto_gandola": f"$ {_n(v)} por gandola en $ · resto en Bs a BCV",
     }[cond.pago] + igtf
 
 

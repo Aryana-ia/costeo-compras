@@ -25,6 +25,7 @@ FORMAS_PAGO = {
     "bcv": "100% en Bs a tasa BCV",
     "pct": "Un % en $, el resto en Bs a BCV",
     "monto": "Un monto en $, el resto en Bs a BCV",
+    "monto_gandola": "Un monto en $ por gandola, el resto en Bs a BCV",
 }
 MONEDAS_FLETE = {
     "usd": "$ (o Bs a tasa interna)",
@@ -144,7 +145,7 @@ class Condiciones:
 
     def clave(self) -> tuple:
         """Huella para saber si dos condiciones son equivalentes."""
-        usa_valor = self.pago in ("pct", "monto")
+        usa_valor = self.pago in ("pct", "monto", "monto_gandola")
         return (
             self.moneda, self.precio_por, bool(self.iva_incluido), self.iva_base, bool(self.iva_sin_descuento),
             self.pago, round(self.pago_valor, 6) if usa_valor else 0.0,
@@ -186,6 +187,7 @@ class Linea:
     p3_ferre: float = 0.0    # $ por pieza
     p3_mcy: float = 0.0
     desc_extra: float = 0.0  # % adicional solo para esta línea
+    gandolas: float = 1.0    # gandolas de este producto (pago «monto en $ por gandola»)
 
 
 @dataclass
@@ -193,6 +195,8 @@ class ResultadoLinea:
     linea: Linea
     error: str | None = None
     # Proveedor (moneda de la cotización)
+    porcion_divisa: float = float("nan")  # parte de la base de esta línea pagada en $
+    usd_linea: float = 0.0                # base de esta línea pagada en $ (total de la línea)
     precio_pieza: float = float("nan")      # precio por pieza tal como cotiza
     lista_sin_iva: float = float("nan")     # sin IVA, antes de descuentos
     factor_desc: float = 1.0

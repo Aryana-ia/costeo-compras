@@ -154,8 +154,9 @@ def _desde_estado(texto: str) -> dict:
         "parametros": Parametros(**{**pa, "fecha": date.fromisoformat(pa["fecha"])}),
         "proveedor": d["proveedor"],
         "condiciones": Condiciones.desde_dict(d["condiciones"]),
-        "lineas": [Linea(**{k: _nan(v) if k in ("cantidad", "precio", "peso") else (v or 0.0) if k != "descripcion" else v
-                            for k, v in ln.items()}) for ln in d["lineas"]],
+        "lineas": [Linea(**{k: _nan(v) if k in ("cantidad", "precio", "peso") else (v or 1.0) if k == "gandolas"
+                            else (v or 0.0) if k != "descripcion" else v
+                            for k, v in ln.items() if k in Linea.__dataclass_fields__}) for ln in d["lineas"]],
         "reconstruido": False,
     }
 
@@ -169,6 +170,9 @@ def _pago_desde_texto(texto: str) -> tuple[str, str, float]:
         return "usd", "divisa", 0.0
     if t.startswith("100% en Bs"):
         return "usd", "bcv", 0.0
+    m = re.match(r"^\$ ([\d.,]+) por gandola", t)
+    if m:
+        return "usd", "monto_gandola", _num(m[1])
     m = re.match(r"^\$ ([\d.,]+) en \$", t)
     if m:
         return "usd", "monto", _num(m[1])

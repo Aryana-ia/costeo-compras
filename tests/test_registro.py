@@ -89,3 +89,16 @@ def test_reabrir_costeo_antiguo_sin_estado():
     res2 = calcular(e["parametros"], e["condiciones"], e["lineas"])
     for a, b in zip(res.lineas, res2.lineas):
         assert b.costo_pieza == pytest.approx(a.costo_pieza)
+
+
+def test_reabrir_costeo_por_gandola():
+    from costeo.registro import abrir_costeo
+    cond = Condiciones(moneda="usd", pago="monto_gandola", pago_valor=13000)
+    lineas = [Linea("A", 2500, 12.0, 11.93, 15, 15, gandolas=2), Linea("B", 4000, 8.0, 6.72, 10, 10)]
+    res = calcular(P, cond, lineas)
+    c = filas_costeo(res, P, PROV, cond, "X9")
+    for quitar_estado in (False, True):
+        e = abrir_costeo(c.drop(columns="Estado") if quitar_estado else c, "X9", [PROV])
+        assert e["condiciones"].pago == "monto_gandola" and e["condiciones"].pago_valor == pytest.approx(13000)
+        if not quitar_estado:
+            assert e["lineas"][0].gandolas == 2

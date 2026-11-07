@@ -237,3 +237,31 @@ def test_retencion_en_dolares():
     bcv, interno = res.plan.en_dolares(res.plan.bs_iva_retenido)
     assert bcv == pytest.approx(10 * 100 * 0.16 * 0.75)          # 120 $: el 75 % del IVA en dólares a tasa BCV
     assert interno == pytest.approx(120 * BCV / INT)               # lo que representa en $ interno
+
+
+# --------------------------------------------------------------------------- COMPLEJO: monto en $ por gandola
+def test_monto_en_dolares_por_gandola():
+    """Cada producto = 1 gandola: se pagan 13.000 $ por gandola y el resto de ESE producto en Bs a BCV."""
+    lineas = [
+        Linea("CABILLA 1/2", 2500, 12.0, 11.93, 15, 15),   # 30.000 $ → 13.000 en $ + 17.000 en Bs
+        Linea("CABILLA 3/8", 4000, 8.0, 6.72, 10, 10),     # 32.000 $ → 13.000 en $ + 19.000 en Bs
+    ]
+    cond = Condiciones(moneda="usd", pago="monto_gandola", pago_valor=13000)
+    res = calcular(params(), cond, lineas)
+    a, b = res.lineas
+    assert a.usd_linea == pytest.approx(13000) and b.usd_linea == pytest.approx(13000)
+    assert a.porcion_divisa == pytest.approx(13000 / 30000)
+    assert b.porcion_divisa == pytest.approx(13000 / 32000)
+    assert a.base_int == pytest.approx(12.0 * (13000 / 30000 + 17000 / 30000 * F))
+    assert res.plan.usd == pytest.approx(26000)
+    assert res.plan.bs_base == pytest.approx((62000 - 26000) * BCV)
+    assert res.plan.gasto_int == pytest.approx(res.totales.costo)
+
+
+def test_monto_por_gandola_con_dos_gandolas_y_tope():
+    lineas = [Linea("A", 5000, 12.0, 11.93, 15, 15, gandolas=2),   # 60.000 $ → 26.000 en $
+              Linea("B", 100, 8.0, 6.72, 10, 10)]                  # 800 $ < 13.000 → 100 % en $
+    res = calcular(params(), Condiciones(moneda="usd", pago="monto_gandola", pago_valor=13000), lineas)
+    assert res.lineas[0].usd_linea == pytest.approx(26000)
+    assert res.lineas[1].porcion_divisa == 1.0
+    assert any("100 % en dólares" in x for x in res.avisos)

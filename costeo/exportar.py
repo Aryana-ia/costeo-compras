@@ -38,6 +38,8 @@ def tabla(res: Resultado, p: Parametros, prov: Proveedor, cond: Condiciones, his
             f"Total s/IVA ({mon})": r.total_sin_iva,
             f"Total IVA ({mon})": r.total_iva,
             f"Total c/IVA ({mon})": r.total_con_iva,
+            "Gandolas": ln.gandolas if cond.pago == "monto_gandola" else None,
+            "Base pagada en $ (línea)": r.usd_linea if cond.moneda == "usd" else None,
             "Base $ int.": r.base_int,
             "IVA $ int.": r.iva_int,
             "Flete $ int.": r.flete_pieza,

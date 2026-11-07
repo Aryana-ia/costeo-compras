@@ -52,7 +52,7 @@ from costeo.modelos import (
 
 st.set_page_config(page_title="Costeo de Compras ACEVAL", page_icon="🧮", layout="wide")
 
-COLS_LINEAS = ["Producto", "Cantidad", "Precio", "Desc. extra %", "Peso kg", "P3 FERRE", "P3 MCY"]
+COLS_LINEAS = ["Producto", "Cantidad", "Precio", "Desc. extra %", "Peso kg", "P3 FERRE", "P3 MCY", "Gandolas"]
 COLORES_ACCION = {
     "SUBIR": "background-color:#FBE4E4;color:#B91C1C;font-weight:700",
     "REVISAR": "background-color:#FBF1D6;color:#A16207;font-weight:700",
@@ -335,7 +335,7 @@ def cb_abrir_para_editar(cid: str) -> None:
         if str(campo).startswith(f"c_{pid_d}_"):
             del ss[campo]
     filas = [{"Producto": ln.descripcion, "Cantidad": ln.cantidad, "Precio": ln.precio, "Desc. extra %": ln.desc_extra,
-              "Peso kg": ln.peso, "P3 FERRE": ln.p3_ferre, "P3 MCY": ln.p3_mcy} for ln in e["lineas"]]
+              "Peso kg": ln.peso, "P3 FERRE": ln.p3_ferre, "P3 MCY": ln.p3_mcy, "Gandolas": ln.gandolas} for ln in e["lineas"]]
     ss.lineas[pid_d] = pd.DataFrame(filas, columns=COLS_LINEAS)
     ss.editor_v[pid_d] = ss.editor_v.get(pid_d, 0) + 1
     ss.setdefault("costeos_sesion", {})[f"{pid_d}|{pa.fecha.isoformat()}"] = cid
@@ -542,7 +542,11 @@ with tab_costeo:
             h2.number_input("% pagado en dólares", min_value=0.0, max_value=100.0, step=5.0, key=k("pago_valor"))
         elif valor("pago") == "monto":
             h2.number_input("Monto pagado en dólares ($)", min_value=0.0, step=500.0, key=k("pago_valor"),
-                            help="Ejemplo COMPLEJO: si la gandola cuesta 31.500 y 13.000 se pagan en $, escribe 13000. El resto se paga en Bs a BCV.")
+                            help="Un solo monto en $ para todo el pedido. El resto se paga en Bs a BCV.")
+        elif valor("pago") == "monto_gandola":
+            h2.number_input("Monto en dólares por gandola ($)", min_value=0.0, step=500.0, key=k("pago_valor"),
+                            help="Ejemplo COMPLEJO: si cada gandola cuesta 31.500 y 13.000 se pagan en $, escribe 13000. "
+                                 "Cada producto cuenta como una gandola (puedes cambiarlo en la columna «Gandolas»).")
         i1, i2 = st.columns([2, 1], vertical_alignment="bottom")
         i1.toggle("Pagar IGTF sobre la parte pagada en dólares", key=k("igtf"),
                   help="Impuesto a las Grandes Transacciones Financieras: se suma al costo el % sobre la base pagada en $.")
@@ -632,11 +636,14 @@ with tab_costeo:
     if b4.button("Agregar", type="primary", disabled=not buscado, width="stretch", key="btn_agregar"):
         r = datos_catalogo(buscado)
         fila = {"Producto": r.DESCRIPCION, "Cantidad": cant_n, "Precio": precio_n, "Desc. extra %": 0.0,
-                "Peso kg": r.PESO, "P3 FERRE": r.P3_FERRE, "P3 MCY": r.P3_MCY}
+                "Peso kg": r.PESO, "P3 FERRE": r.P3_FERRE, "P3 MCY": r.P3_MCY, "Gandolas": 1.0}
         base = ss.get(f"_ultimo_editado_{pid}", ss.lineas[pid])
         reemplazar_lineas(pd.concat([base, pd.DataFrame([fila])], ignore_index=True))
         st.rerun()
 
+    if "Gandolas" not in ss.lineas[pid].columns:   # tablas creadas antes de esta columna
+        ss.lineas[pid] = ss.lineas[pid].assign(Gandolas=1.0)
+    por_gandola = cond.moneda == "usd" and cond.pago == "monto_gandola"
     etiqueta_precio = f"Precio {'Bs' if cond.moneda == 'bs' else '$'} {'c/IVA' if cond.iva_incluido else 's/IVA'} / {PRECIO_POR[cond.precio_por].lower()}"
     editado = st.data_editor(
         ss.lineas[pid],
@@ -644,7 +651,10 @@ with tab_costeo:
         num_rows="dynamic",
         width="stretch",
         hide_index=True,
+        column_order=COLS_LINEAS if por_gandola else COLS_LINEAS[:-1],
         column_config={
+            "Gandolas": st.column_config.NumberColumn("Gandolas", min_value=0.01, format="%.2f", default=1.0,
+                                                      help="Gandolas de este producto: se paga en $ el monto por gandola × este número."),
             "Producto": st.column_config.TextColumn("Producto", width="large", required=True),
             "Cantidad": st.column_config.NumberColumn("Cant. piezas", min_value=0, format="%.2f"),
             "Precio": st.column_config.NumberColumn(etiqueta_precio, min_value=0, format="%.4f"),
@@ -676,7 +686,8 @@ with tab_costeo:
                             fila.Precio if pd.notna(fila.Precio) else float("nan"),
                             peso if pd.notna(peso) else float("nan"),
                             p3f if pd.notna(p3f) else 0.0, p3m if pd.notna(p3m) else 0.0,
-                            fila[3] if pd.notna(fila[3]) else 0.0))
+                            fila[3] if pd.notna(fila[3]) else 0.0,
+                            fila[7] if len(fila) > 7 and pd.notna(fila[7]) and fila[7] > 0 else 1.0))
 
     a1, a2, a3 = st.columns([2, 2, 3])
     if a1.button("Actualizar peso y P3 desde la lista", width="stretch", key="btn_refrescar"):
@@ -700,7 +711,7 @@ with tab_costeo:
             r = datos_catalogo(d)
             if r is not None:
                 filas.append({"Producto": d, "Cantidad": c, "Precio": pr, "Desc. extra %": 0.0,
-                              "Peso kg": r.PESO, "P3 FERRE": r.P3_FERRE, "P3 MCY": r.P3_MCY})
+                              "Peso kg": r.PESO, "P3 FERRE": r.P3_FERRE, "P3 MCY": r.P3_MCY, "Gandolas": 1.0})
         reemplazar_lineas(pd.DataFrame(filas, columns=COLS_LINEAS))
         if not ss.get("bcv"):
             ss.bcv, ss.interna = 210.5, 285.0
@@ -826,14 +837,17 @@ with tab_costeo:
         else:
             ln = r.linea
             descs = [*cond.descuentos, *([ln.desc_extra] if ln.desc_extra else [])]
+            _p = r.porcion_divisa if fmt.es_numero(r.porcion_divisa) else res.porcion_divisa
             if res.porcion_divisa is None:
                 base_txt = f"÷ interna {fmt.num(params.tasa_interna)}"
-            elif res.porcion_divisa == 1:
+            elif _p == 1:
                 base_txt = "pagada en $ (× 1)"
-            elif res.porcion_divisa == 0:
+            elif _p == 0:
                 base_txt = "Bs a BCV (× BCV ÷ interna)"
             else:
-                base_txt = f"{fmt.num(res.porcion_divisa * 100, 1)}% en $ + {fmt.num((1 - res.porcion_divisa) * 100, 1)}% Bs a BCV"
+                base_txt = f"{fmt.num(_p * 100, 1)}% en $ + {fmt.num((1 - _p) * 100, 1)}% Bs a BCV"
+                if cond.pago == "monto_gandola":
+                    base_txt = f"$ {fmt.num(r.usd_linea)} en $ por {fmt.num(r.linea.gandolas)} gandola · " + base_txt
             pasos = [
                 (f"Precio cotizado por {PRECIO_POR[cond.precio_por].lower()} ({mon})", fmt.num(ln.precio, 4)),
                 ("Precio por pieza", fmt.num(r.precio_pieza, 4)),
@@ -843,11 +857,11 @@ with tab_costeo:
                  + (f" sobre la base sin descuento ({fmt.num(r.lista_sin_iva, 4)})" if cond.iva_sin_descuento and r.factor_desc != 1 else ""),
                  "+ " + fmt.num(r.iva_pieza, 4)),
                 (f"**Pieza con IVA ({mon})**", f"**{fmt.num(r.pieza_con_iva, 4)}**"),
-                (f"Base a $ interno: {base_txt} (× {fmt.num(res.factor_base, 4)})", fmt.num(r.base_int, 4)),
+                (f"Base a $ interno: {base_txt} (× {fmt.num(r.base_int / r.pieza_sin_iva, 4)})", fmt.num(r.base_int, 4)),
                 (f"IVA a $ interno: {'÷ interna' if cond.moneda == 'bs' else 'Bs a BCV'} (× {fmt.num(res.factor_iva, 4)})"
                  + ("" if iva_costo else " · no se suma"), ("+ " if iva_costo else "") + fmt.num(r.iva_int, 4)),
                 (f"Flete: {fmt.num(res.flete_kg, 4)} $/kg × {fmt.num(ln.peso)} kg", "+ " + fmt.num(r.flete_pieza, 4)),
-                *([(f"IGTF {cond.igtf_pct:g}% sobre la base pagada en $ ({fmt.num(r.pieza_sin_iva * (res.porcion_divisa or 0), 4)})",
+                *([(f"IGTF {cond.igtf_pct:g}% sobre la base pagada en $ ({fmt.num(r.pieza_sin_iva * (_p or 0), 4)})",
                     "+ " + fmt.num(r.igtf_pieza, 4))] if cond.igtf and r.igtf_pieza else []),
                 ("**Costo por pieza ($ interno)**", f"**{fmt.num(r.costo_pieza, 4)}**"),
                 ("**Costo por kilo**", f"**{fmt.num(r.costo_kg, 4)}**"),
