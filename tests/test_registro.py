@@ -102,3 +102,14 @@ def test_reabrir_costeo_por_gandola():
         assert e["condiciones"].pago == "monto_gandola" and e["condiciones"].pago_valor == pytest.approx(13000)
         if not quitar_estado:
             assert e["lineas"][0].gandolas == 2
+
+
+def test_imagenes_por_hojas_y_pdf():
+    from costeo.exportar import imagenes, pdf_imprimir
+    lineas = [Linea(f"PRODUCTO {i}", 10, 5, 2, 7, 7) for i in range(10)]
+    res = calcular(P, COND, lineas)
+    hojas = imagenes(res, P, PROV, COND)
+    assert len(hojas) == 4 and all(h[:4] == b"\x89PNG" for h in hojas)   # 3 + 3 + 3 + 1
+    assert len(imagenes(calcular(P, COND, lineas[:2]), P, PROV, COND)) == 1
+    pdf = pdf_imprimir(res, P, PROV, COND, "Ariana")
+    assert pdf[:5] == b"%PDF-"

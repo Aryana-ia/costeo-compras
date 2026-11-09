@@ -40,7 +40,7 @@ from costeo.almacen import ARCH_COSTEOS, ARCH_HISTORIAL, ARCH_LISTA, Almacen, Co
 from costeo.calculo import calcular, describir_iva, describir_pago
 from costeo.catalogo import ejemplo as catalogo_ejemplo
 from costeo.catalogo import leer_lista_precios, resumen
-from costeo.exportar import excel, imagen, tabla
+from costeo.exportar import excel, imagenes, pdf_imprimir, tabla
 from costeo.historial import Historial, leer_historial, plantilla_excel
 from costeo.historial import ejemplo as historial_ejemplo
 from costeo.registro import abrir_costeo, filas_costeo, filas_historial, nuevo_id, reemplazar, resumen_costeos
@@ -344,6 +344,24 @@ def cb_abrir_para_editar(cid: str) -> None:
     ss.mensajes.append(("success", f"Costeo {cid} abierto en la pestaña «🧮 Costeo». Si lo cambias y guardas, se actualiza el mismo costeo."))
 
 
+def botones_compartir(hojas: list[bytes], pdf: bytes, xls: bytes, base: str, sufijo: str) -> None:
+    """Imágenes por hoja (WhatsApp), PDF para imprimir y Excel."""
+    n = len(hojas)
+    st.caption(f"📱 Imágenes para WhatsApp: {n} {'hoja' if n == 1 else 'hojas'} de hasta 3 productos, con el mismo encabezado.")
+    cols = st.columns(min(n, 4))
+    for i, h in enumerate(hojas):
+        cols[i % len(cols)].download_button(f"📱 Hoja {i + 1} de {n}" if n > 1 else "📱 Imagen para WhatsApp", h,
+                                            f"{base}_hoja{i + 1}.png" if n > 1 else f"{base}.png", "image/png",
+                                            type="primary", width="stretch", key=f"dl_png_{sufijo}_{i}")
+    c1, c2 = st.columns(2)
+    c1.download_button("🖨️ PDF para imprimir (carta)", pdf, f"{base}.pdf", "application/pdf", width="stretch", key=f"dl_pdf_{sufijo}")
+    c2.download_button("📊 Excel", xls, f"{base}.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch", key=f"dl_xls_{sufijo}")
+    with st.expander("Vista previa de las imágenes"):
+        for i, h in enumerate(hojas):
+            st.image(h, width=420, caption=f"Hoja {i + 1} de {n}" if n > 1 else None)
+
+
 def vista_costeos_guardados() -> None:
     todos = cargar_costeos()
     resumen_c = resumen_costeos(todos)
@@ -386,19 +404,15 @@ def vista_costeos_guardados() -> None:
     if e["reconstruido"]:
         st.caption("Costeo guardado con una versión anterior de la app: se rearmó desde el detalle guardado (da los mismos costos).")
     try:
-        png_v = imagen(res_v, pa, prov_v, c, hist_v, autor)
+        hojas_v = imagenes(res_v, pa, prov_v, c, hist_v, autor)
+        pdf_v = pdf_imprimir(res_v, pa, prov_v, c, autor)
         xls_v = excel(res_v, pa, prov_v, c, hist_v)
     except Exception as ex:  # noqa: BLE001
         st.error(f"No se pudieron generar los archivos: {ex}")
         return
     base_v = f"costeo_{fmt.slug(prov_v.nombre)}_{pa.fecha.isoformat()}"
-    d1, d2, d3 = st.columns(3)
-    d1.download_button("📱 Imagen para WhatsApp", png_v, f"{base_v}.png", "image/png", type="primary", width="stretch", key="dl_png_v")
-    d2.download_button("📊 Excel", xls_v, f"{base_v}.xlsx",
-                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch", key="dl_xls_v")
-    d3.button("✏️ Abrir para editar", width="stretch", key="btn_abrir_costeo", on_click=cb_abrir_para_editar, args=(cid,))
-    with st.expander("Vista previa de la imagen"):
-        st.image(png_v, width=420)
+    botones_compartir(hojas_v, pdf_v, xls_v, base_v, "v")
+    st.button("✏️ Abrir para editar", width="stretch", key="btn_abrir_costeo", on_click=cb_abrir_para_editar, args=(cid,))
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="xlsxwriter") as w:
         todos.drop(columns=["Estado"], errors="ignore").to_excel(w, index=False, sheet_name="Costeos")
@@ -905,17 +919,13 @@ with tab_costeo:
     st.markdown("##### Compartir")
     nombre_base = f"costeo_{fmt.slug(prov.nombre)}_{params.fecha.isoformat()}"
     try:
-        png = imagen(res, params, prov, cond, hist, autor)
+        hojas = imagenes(res, params, prov, cond, hist, autor)
+        pdf = pdf_imprimir(res, params, prov, cond, autor)
         xls = excel(res, params, prov, cond, hist)
     except Exception as e:  # noqa: BLE001
         st.error(f"No se pudieron generar los archivos: {e}")
         st.stop()
-    e1, e2 = st.columns(2)
-    e1.download_button("📱 Descargar imagen para WhatsApp", png, f"{nombre_base}.png", "image/png", type="primary", width="stretch")
-    e2.download_button("📊 Descargar Excel", xls, f"{nombre_base}.xlsx",
-                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch")
-    with st.expander("Vista previa de la imagen"):
-        st.image(png, width=420)
+    botones_compartir(hojas, pdf, xls, nombre_base, "c")
 
     # --- guardar en el historial ------------------------------------------------
     st.markdown("##### Guardar en el historial")
