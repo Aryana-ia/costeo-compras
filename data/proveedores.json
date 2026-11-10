@@ -86,5 +86,27 @@
       "retencion_iva": true,
       "retencion_pct": 75.0
     }
+  },
+  {
+    "id": "p_2848e0d0",
+    "nombre": "SIZUCA",
+    "condiciones": {
+      "moneda": "usd",
+      "precio_por": "pieza",
+      "iva_incluido": false,
+      "iva_base": "100",
+      "iva_sin_descuento": false,
+      "pago": "pct",
+      "pago_valor": 50.0,
+      "flete": 0.0,
+      "flete_moneda": "usd",
+      "toneladas": 32.0,
+      "flete_carga_real": false,
+      "descuentos": [],
+      "igtf": false,
+      "igtf_pct": 3.0,
+      "retencion_iva": false,
+      "retencion_pct": 75.0
+    }
   }
 ]
