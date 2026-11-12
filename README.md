@@ -52,6 +52,7 @@ Todo se lleva a **dólares a tasa interna** (“$ interno”), que es la unidad 
 | 4b | IVA «full» (ACEROS LAMINADOS) | Si el perfil dice *IVA sobre la base sin descuento*: `base ANTES de descuentos × 16 %`. La base que se paga sí lleva el descuento. |
 | 5a | Base a $ interno | Parte pagada en $ (o Bs a tasa interna): `× 1` · parte pagada en Bs a BCV: `× BCV ÷ interna` |
 | 5b | IVA a $ interno | Cotización en $: el IVA **siempre** se paga en Bs a BCV → `× BCV ÷ interna` |
+| 5e | Tasa BCV € (si se elige) | Lo pagado en Bs puede ir a tasa BCV del euro: `Bs = $ × tasa BCV €` → `÷ interna`. Se elige por proveedor: todo a $, todo a €, o mixta (base a una tasa e IVA a otra). |
 | 5c | Cotización en Bs | Base e IVA `÷ interna` |
 | 5d | IGTF (si se activa) | `3 % × parte de la base pagada en dólares` (base con descuentos). No aplica al IVA ni a lo pagado en Bs. Se suma al costo. |
 | — | Retención de IVA (informativa) | Si se activa (75 % por defecto), «Cómo se paga» separa el IVA en lo retenido (al SENIAT) y lo que se paga al proveedor. **No cambia el costo**: el costo siempre lleva el 100 % del IVA. |

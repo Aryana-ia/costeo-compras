@@ -83,6 +83,7 @@ def filas_costeo(res: Resultado, p: Parametros, prov: Proveedor, cond: Condicion
         "Fecha pedido": p.fecha.isoformat(),
         "Proveedor": prov.nombre,
         "Tasa BCV": p.tasa_bcv,
+        "Tasa BCV €": p.tasa_bcv_eur or None,
         "Tasa interna": p.tasa_interna,
         "Forma de pago": describir_pago(cond),
         "IVA": describir_iva(cond, p.iva),
@@ -204,6 +205,8 @@ def _reconstruir(det: pd.DataFrame, proveedores: list[Proveedor]) -> dict:
         "iva_sin_descuento": "sin descuento" in iva_txt,
         "igtf": "IGTF" in str(f0.get("Forma de pago", "")),
         "retencion_iva": "retención" in iva_txt,
+        "tasa_base": "eur" if re.search(r"base (e IVA )?a BCV €", str(f0.get("Forma de pago", ""))) else "usd",
+        "tasa_iva": "eur" if re.search(r"(base e IVA|· IVA) a BCV €", str(f0.get("Forma de pago", ""))) else "usd",
         "descuentos": descs, "flete": _num(f0.get("Flete")), "flete_moneda": f0.get("Moneda flete") or "usd",
     })
     tasa = iva / 100 * (0.10 if cond.iva_base == "10" else 1)
@@ -231,6 +234,7 @@ def _reconstruir(det: pd.DataFrame, proveedores: list[Proveedor]) -> dict:
         cond.precio_por = max(set(unidades), key=unidades.count)
     params = Parametros(
         fecha=date.fromisoformat(str(f0["Fecha pedido"])[:10]), tasa_bcv=_num(f0["Tasa BCV"]), tasa_interna=_num(f0["Tasa interna"]),
+        tasa_bcv_eur=_num(f0.get("Tasa BCV €")),
         iva=iva, margen_min=margenes[0] if margenes else 17.0, margen_obj=margenes[-1] if margenes else 18.0, iva_en_costo=iva_en_costo,
     )
     return {"parametros": params, "proveedor": {"id": prov.id if prov else "", "nombre": nombre},

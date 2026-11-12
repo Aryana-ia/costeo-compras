@@ -145,6 +145,9 @@ def calcular(p: Parametros, cond: Condiciones, lineas: list[Linea]) -> Resultado
             "en los totales ni en el reparto del pago."
         )
 
+    if cond.moneda == "usd" and "eur" in (cond.tasa_base, cond.tasa_iva) and not (_ok(p.tasa_bcv_eur) and p.tasa_bcv_eur > 0):
+        errores.append("Falta la tasa BCV € (el proveedor paga en Bs a tasa del euro).")
+        tasas_ok = False
     if not tasas_ok:
         return Resultado(
             lineas=res, totales=Totales(lineas=len(validas), kg=total_kg, sin_iva=total_sin, iva=total_iva),
@@ -154,13 +157,15 @@ def calcular(p: Parametros, cond: Condiciones, lineas: list[Linea]) -> Resultado
         )
 
     # -- Paso 5: factores a $ interno ----------------------------------------
-    f_bcv = p.factor_bcv
+    # Tasa BCV que aplica a lo pagado en Bs: dólar o euro, por separado para la base y para el IVA
+    f_base = p.factor(cond.tasa_base)
+    f_iva = p.factor(cond.tasa_iva)
     porcion: float | None
     if cond.moneda == "bs":
         factor_base = factor_iva = 1 / p.tasa_interna
         porcion = None
     else:
-        factor_iva = f_bcv  # el IVA de una cotización en $ se paga en Bs a BCV
+        factor_iva = f_iva  # el IVA de una cotización en $ se paga en Bs a BCV ($ o €)
         if cond.pago == "divisa":
             porcion = 1.0
         elif cond.pago == "bcv":
@@ -203,7 +208,7 @@ def calcular(p: Parametros, cond: Condiciones, lineas: list[Linea]) -> Resultado
             for r in validas:
                 r.porcion_divisa = porcion
                 r.usd_linea = r.total_sin_iva * porcion
-        factor_base = porcion + (1 - porcion) * f_bcv
+        factor_base = porcion + (1 - porcion) * f_base
 
     # -- Paso 6: flete --------------------------------------------------------
     kg_gandola = toneladas * 1000
@@ -221,7 +226,7 @@ def calcular(p: Parametros, cond: Condiciones, lineas: list[Linea]) -> Resultado
         ln = r.linea
         # Parte de la base pagada en $ de esta línea (en «por gandola» cambia de una línea a otra)
         p_linea = None if porcion is None else (r.porcion_divisa if _ok(r.porcion_divisa) else porcion)
-        r.base_int = r.pieza_sin_iva * (factor_base if p_linea is None else p_linea + (1 - p_linea) * f_bcv)
+        r.base_int = r.pieza_sin_iva * (factor_base if p_linea is None else p_linea + (1 - p_linea) * f_base)
         r.iva_int = r.iva_pieza * factor_iva
         r.flete_pieza = flete_kg * ln.peso
         # IGTF: % sobre la parte de la base que se paga en dólares (no aplica al IVA ni a lo pagado en Bs)
@@ -270,8 +275,8 @@ def calcular(p: Parametros, cond: Condiciones, lineas: list[Linea]) -> Resultado
             usd=total_sin * porcion,
             usd_base_en_bs=total_sin * (1 - porcion),
             usd_iva=total_iva,
-            bs_base=total_sin * (1 - porcion) * p.tasa_bcv,
-            bs_iva=total_iva * p.tasa_bcv,
+            bs_base=total_sin * (1 - porcion) * p.tasa(cond.tasa_base),
+            bs_iva=total_iva * p.tasa(cond.tasa_iva),
         )
     # El flete del pedido es la tarifa por kilo × los kilos pedidos (lo mismo que suman los productos),
     # no el monto fijo de una gandola: así el gasto total cuadra con el costo de las piezas.
@@ -296,6 +301,7 @@ def describir_pago(cond: Condiciones) -> str:
         return "Pago en Bs (÷ tasa interna)"
     v = cond.pago_valor
     igtf = f" · IGTF {cond.igtf_pct:g}%" if cond.igtf else ""
+    igtf = describir_tasas(cond) + igtf
     return {
         "divisa": "100% en $ o Bs a tasa interna",
         "bcv": "100% en Bs a tasa BCV",
@@ -303,6 +309,15 @@ def describir_pago(cond: Condiciones) -> str:
         "monto": f"$ {_n(v)} en $ · resto en Bs a BCV",
         "monto_gandola": f"$ {_n(v)} por gandola en $ · resto en Bs a BCV",
     }[cond.pago] + igtf
+
+
+def describir_tasas(cond: Condiciones) -> str:
+    """Qué tasa BCV se usa para lo pagado en Bs (vacío si todo va al dólar, lo habitual)."""
+    if cond.moneda == "bs" or (cond.tasa_base == "usd" and cond.tasa_iva == "usd"):
+        return ""
+    if cond.tasa_base == cond.tasa_iva:
+        return " · base e IVA a BCV €"
+    return " · base a BCV €" if cond.tasa_base == "eur" else " · IVA a BCV €"
 
 
 def describir_iva(cond: Condiciones, iva: float) -> str:

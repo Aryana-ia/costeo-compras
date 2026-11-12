@@ -265,3 +265,33 @@ def test_monto_por_gandola_con_dos_gandolas_y_tope():
     assert res.lineas[0].usd_linea == pytest.approx(26000)
     assert res.lineas[1].porcion_divisa == 1.0
     assert any("100 % en dólares" in x for x in res.avisos)
+
+
+# --------------------------------------------------------------------------- tasa BCV del euro
+EUR = 1030.0
+
+
+def test_bs_a_tasa_euro():
+    """Cotiza en $, pero lo que se paga en Bs va a tasa BCV €: Bs = $ × tasa €."""
+    p = params(tasa_bcv_eur=EUR)
+    cond = Condiciones(moneda="usd", pago="bcv", tasa_base="eur", tasa_iva="eur")
+    res = calcular(p, cond, [cabilla_media(cant=1, precio=1000)])
+    r = res.lineas[0]
+    assert r.base_int == pytest.approx(1000 * EUR / INT)
+    assert r.iva_int == pytest.approx(160 * EUR / INT)
+    assert res.plan.bs_base == pytest.approx(1000 * EUR) and res.plan.bs_iva == pytest.approx(160 * EUR)
+
+
+def test_mixta_base_euro_iva_dolar():
+    p = params(tasa_bcv_eur=EUR)
+    cond = Condiciones(moneda="usd", pago="pct", pago_valor=50, tasa_base="eur", tasa_iva="usd")
+    r = calcular(p, cond, [cabilla_media(cant=1, precio=1000)]).lineas[0]
+    assert r.base_int == pytest.approx(1000 * (0.5 + 0.5 * EUR / INT))
+    assert r.iva_int == pytest.approx(160 * F)
+
+
+def test_falta_tasa_euro():
+    res = calcular(params(), Condiciones(moneda="usd", tasa_base="eur"), [cabilla_media()])
+    assert any("BCV €" in e for e in res.errores)
+    sin_euro = calcular(params(), Condiciones(moneda="usd"), [cabilla_media()])
+    assert not sin_euro.errores

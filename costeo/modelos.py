@@ -27,6 +27,7 @@ FORMAS_PAGO = {
     "monto": "Un monto en $, el resto en Bs a BCV",
     "monto_gandola": "Un monto en $ por gandola, el resto en Bs a BCV",
 }
+TASAS_BCV = {"usd": "BCV $ (dólar)", "eur": "BCV € (euro)"}
 MONEDAS_FLETE = {
     "usd": "$ (o Bs a tasa interna)",
     "bs": "Bolívares",
@@ -74,6 +75,17 @@ class Parametros:
     margen_min: float = 17.0      # % (piso)
     margen_obj: float = 18.0      # % (objetivo)
     iva_en_costo: bool = True     # el IVA forma parte del costo
+    tasa_bcv_eur: float = 0.0     # tasa BCV del euro (Bs/€)
+
+    def tasa(self, moneda: str = "usd") -> float:
+        """Tasa BCV en Bs según la moneda de referencia: «usd» (dólar) o «eur» (euro)."""
+        return self.tasa_bcv_eur if moneda == "eur" else self.tasa_bcv
+
+    def factor(self, moneda: str = "usd") -> float:
+        """Tasa BCV ($ o €) ÷ interna: lo que vale en $ interno un dólar pagado en Bs a esa tasa."""
+        if self.tasa_interna <= 0:
+            return float("nan")
+        return self.tasa(moneda) / self.tasa_interna
 
     @property
     def factor_bcv(self) -> float:
@@ -103,6 +115,8 @@ class Condiciones:
     toneladas: float = 32.0          # toneladas por gandola
     flete_carga_real: bool = False   # repartir el flete sobre los kg reales del pedido
     descuentos: list[float] = field(default_factory=list)  # % en cascada, sobre la base
+    tasa_base: str = "usd"           # tasa BCV con la que se pagan en Bs la base (usd | eur)
+    tasa_iva: str = "usd"            # tasa BCV con la que se paga el IVA en Bs (usd | eur)
     igtf: bool = False               # se paga IGTF sobre la parte de la base pagada en dólares
     igtf_pct: float = 3.0
     retencion_iva: bool = False      # informativo: parte del IVA se retiene y se entera al SENIAT
@@ -118,6 +132,8 @@ class Condiciones:
             (self.iva_base, IVA_BASE, "iva_base"),
             (self.pago, FORMAS_PAGO, "pago"),
             (self.flete_moneda, MONEDAS_FLETE, "flete_moneda"),
+            (self.tasa_base, TASAS_BCV, "tasa_base"),
+            (self.tasa_iva, TASAS_BCV, "tasa_iva"),
         ]
         for valor, permitidos, nombre in checks:
             if valor not in permitidos:
@@ -151,6 +167,7 @@ class Condiciones:
             self.pago, round(self.pago_valor, 6) if usa_valor else 0.0,
             round(self.flete, 6), self.flete_moneda, round(self.toneladas, 6),
             bool(self.flete_carga_real), tuple(round(d, 6) for d in self.descuentos),
+            self.tasa_base, self.tasa_iva,
             bool(self.igtf), round(self.igtf_pct, 6) if self.igtf else 0.0,
             bool(self.retencion_iva), round(self.retencion_pct, 6) if self.retencion_iva else 0.0,
         )

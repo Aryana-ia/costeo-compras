@@ -37,16 +37,16 @@ costeo._firma = FIRMA_COSTEO
 from costeo import __version__  # noqa: E402
 from costeo import formato as fmt
 from costeo.almacen import ARCH_COSTEOS, ARCH_HISTORIAL, ARCH_LISTA, Almacen, ConfigGitHub
-from costeo.calculo import calcular, describir_iva, describir_pago
+from costeo.calculo import calcular, describir_iva, describir_pago, describir_tasas
 from costeo.catalogo import ejemplo as catalogo_ejemplo
 from costeo.catalogo import leer_lista_precios, resumen
 from costeo.exportar import excel, imagenes, pdf_imprimir, tabla
 from costeo.historial import Historial, leer_historial, plantilla_excel
 from costeo.historial import ejemplo as historial_ejemplo
 from costeo.registro import abrir_costeo, filas_costeo, filas_historial, nuevo_id, reemplazar, resumen_costeos
-from costeo.tasas import obtener_tasa_bcv
+from costeo.tasas import obtener_tasas_bcv
 from costeo.modelos import (
-    FORMAS_PAGO, IVA_BASE, IVA_DESCUENTO, MONEDAS, MONEDAS_FLETE, PRECIO_POR,
+    FORMAS_PAGO, IVA_BASE, IVA_DESCUENTO, MONEDAS, TASAS_BCV, MONEDAS_FLETE, PRECIO_POR,
     Condiciones, ErrorDeDatos, Linea, Parametros, Proveedor,
 )
 
@@ -75,6 +75,10 @@ if ss.get("_firma_costeo") != FIRMA_COSTEO and "almacen" in ss:
         for _clave in list(ss.keys()):
             del ss[_clave]
 ss._firma_costeo = FIRMA_COSTEO
+
+
+def _sim(moneda: str) -> str:
+    return "€" if moneda == "eur" else "$"
 
 
 def md(texto) -> str:
@@ -152,28 +156,31 @@ iniciar()
 # Barra lateral: tasas, márgenes y bases de datos
 # =============================================================================
 @st.cache_data(ttl=1800, show_spinner=False)
-def tasa_bcv_en_linea():
-    """Consulta la tasa BCV (se guarda 30 minutos para no consultar en cada clic)."""
-    return obtener_tasa_bcv()
+def tasas_bcv_en_linea():
+    """Consulta las tasas BCV del dólar y del euro (se guardan 30 minutos para no consultar en cada clic)."""
+    return obtener_tasas_bcv()
 
 
 def cb_traer_bcv(forzar: bool = True) -> None:
+    """Trae las tasas BCV $ y € del día; si una falla, la otra igual se carga."""
     if forzar:
-        tasa_bcv_en_linea.clear()
-    try:
-        t = tasa_bcv_en_linea()
-    except ErrorDeDatos as e:
-        ss.tasa_info = {"error": str(e)}
-        return
-    ss.bcv = round(t.valor, 4)
-    ss.tasa_info = {"valor": t.valor, "fecha": t.fecha_valor, "fuente": t.fuente}
+        tasas_bcv_en_linea.clear()
+    tasas = tasas_bcv_en_linea()
+    ss.tasa_info = {}
+    for moneda, clave in (("usd", "bcv"), ("eur", "bcv_eur")):
+        t = tasas.get(moneda)
+        if isinstance(t, Exception):
+            ss.tasa_info[moneda] = {"error": str(t)}
+        else:
+            ss[clave] = round(t.valor, 4)
+            ss.tasa_info[moneda] = {"valor": t.valor, "fecha": t.fecha_valor, "fuente": t.fuente}
 
 
 # Valores iniciales de la barra lateral (se fijan una vez para poder cambiarlos al reabrir un costeo)
-for _k, _v in {"fecha": fmt.ahora().date(), "bcv": None, "interna": None, "iva": 16.0, "m_min": 17.0, "m_obj": 18.0,
+for _k, _v in {"fecha": fmt.ahora().date(), "bcv": None, "bcv_eur": None, "interna": None, "iva": 16.0, "m_min": 17.0, "m_obj": 18.0,
                "iva_costo": True, "autor": "Ariana G. Romero Rodríguez"}.items():
     ss.setdefault(_k, _v)
-if "tasa_info" not in ss and ss.bcv is None:   # al abrir la app se trae la tasa del día una sola vez
+if "usd" not in (ss.get("tasa_info") or {}) and (ss.bcv is None or ss.bcv_eur is None):   # al abrir la app se trae la tasa del día una sola vez
     with st.spinner("Consultando la tasa BCV…"):
         cb_traer_bcv(forzar=False)
 
@@ -181,16 +188,19 @@ with st.sidebar:
     st.header("Fecha y tasas")
     fecha = st.date_input("Fecha del pedido", format="DD/MM/YYYY", key="fecha")
     tb1, tb2 = st.columns([3, 1], vertical_alignment="bottom")
-    bcv = tb1.number_input("Tasa BCV (Bs/$)", min_value=0.0, step=0.01, format="%.4f", key="bcv", placeholder="Ej. 210,50")
-    tb2.button("🔄", key="btn_bcv", on_click=cb_traer_bcv, help="Traer la tasa oficial del día desde la página del BCV")
+    bcv = tb1.number_input("Tasa BCV $ (Bs/$)", min_value=0.0, step=0.01, format="%.4f", key="bcv", placeholder="Ej. 210,50")
+    tb2.button("🔄", key="btn_bcv", on_click=cb_traer_bcv, help="Traer las tasas oficiales del día ($ y €) desde la página del BCV")
+    bcv_eur = st.number_input("Tasa BCV € (Bs/€)", min_value=0.0, step=0.01, format="%.4f", key="bcv_eur", placeholder="Ej. 245,10")
     info = ss.get("tasa_info") or {}
-    if info.get("error"):
-        st.warning(info["error"])
-    elif info.get("valor"):
-        fv = info.get("fecha")
-        st.caption(f"Tasa BCV {fmt.num(info['valor'], 4)} · fecha valor {fmt.fecha(fv) if fv else '—'} · {info['fuente']}")
-        if fv and fv != fecha:
-            st.caption(f"⚠️ La fecha valor ({fmt.fecha(fv)}) no es la fecha del pedido ({fmt.fecha(fecha)}). Revisa que la tasa corresponda.")
+    for moneda, simbolo in (("usd", "$"), ("eur", "€")):
+        dato = info.get(moneda) or {}
+        if dato.get("error"):
+            st.warning(dato["error"])
+        elif dato.get("valor"):
+            fv = dato.get("fecha")
+            st.caption(f"BCV {simbolo} {fmt.num(dato['valor'], 4)} · fecha valor {fmt.fecha(fv) if fv else '—'} · {dato['fuente']}")
+            if fv and fv != fecha and moneda == "usd":
+                st.caption(f"⚠️ La fecha valor ({fmt.fecha(fv)}) no es la fecha del pedido ({fmt.fecha(fecha)}). Revisa que la tasa corresponda.")
     interna = st.number_input("Tasa interna (Bs/$)", min_value=0.0, step=0.01, format="%.4f", key="interna", placeholder="Ej. 285,00")
     iva = st.number_input("IVA %", min_value=0.0, step=0.5, key="iva")
     c1, c2 = st.columns(2)
@@ -328,6 +338,7 @@ def cb_abrir_para_editar(cid: str) -> None:
     pid_d = destino.id
     ss.prov_id = ss.sel_prov = pid_d
     ss.fecha, ss.bcv, ss.interna, ss.iva = pa.fecha, pa.tasa_bcv, pa.tasa_interna, pa.iva
+    ss.bcv_eur = pa.tasa_bcv_eur or ss.get("bcv_eur")
     ss.m_min, ss.m_obj, ss.iva_costo = pa.margen_min, pa.margen_obj, pa.iva_en_costo
     ss.tasa_info = {}
     ss.conds[pid_d] = c
@@ -390,7 +401,7 @@ def vista_costeos_guardados() -> None:
     cnt_v = res_v.conteo()
     st.markdown(md(f"🔴 **{cnt_v['SUBIR']}** subir · 🟡 **{cnt_v['REVISAR']}** revisar · 🟢 **{cnt_v['MANTENER']}** mantener · "
                    f"gasto total **$ {fmt.num(res_v.plan.gasto_int)}** interno"))
-    st.caption(md(f"{fmt.fecha(pa.fecha)} · BCV {fmt.num(pa.tasa_bcv)} · interna {fmt.num(pa.tasa_interna)} · "
+    st.caption(md(f"{fmt.fecha(pa.fecha)} · BCV $ {fmt.num(pa.tasa_bcv)}{(' · BCV € ' + fmt.num(pa.tasa_bcv_eur)) if describir_tasas(c) else ''} · interna {fmt.num(pa.tasa_interna)} · "
                   f"{describir_pago(c)} · {describir_iva(c, pa.iva)}"))
     corto = pd.DataFrame([{
         "Producto": r.linea.descripcion, "Cant.": r.linea.cantidad, "Costo kg": r.costo_kg,
@@ -500,6 +511,8 @@ with tab_costeo:
             "toneladas": float(c.toneladas), "flete_carga_real": c.flete_carga_real,
             "descuentos": "; ".join(fmt.num(d).rstrip("0").rstrip(",") for d in c.descuentos),
             "igtf": c.igtf, "igtf_pct": float(c.igtf_pct),
+            "tasa_modo": "mixta" if c.tasa_base != c.tasa_iva else c.tasa_base,
+            "tasa_base": c.tasa_base, "tasa_iva": c.tasa_iva,
             "retencion_iva": c.retencion_iva, "retencion_pct": float(c.retencion_pct),
         }
 
@@ -561,6 +574,13 @@ with tab_costeo:
             h2.number_input("Monto en dólares por gandola ($)", min_value=0.0, step=500.0, key=k("pago_valor"),
                             help="Ejemplo COMPLEJO: si cada gandola cuesta 31.500 y 13.000 se pagan en $, escribe 13000. "
                                  "Cada producto cuenta como una gandola (puedes cambiarlo en la columna «Gandolas»).")
+        t1, t2, t3 = st.columns(3)
+        t1.selectbox("Tasa BCV para lo pagado en Bs", ["usd", "eur", "mixta"], key=k("tasa_modo"),
+                     format_func={"usd": "BCV $ (dólar)", "eur": "BCV € (euro)", "mixta": "Mixta: base y IVA por separado"}.get,
+                     help="Con BCV €, los Bs se calculan como monto en $ × tasa BCV €. Luego, como siempre, ÷ tasa interna.")
+        if valor("tasa_modo") == "mixta":
+            t2.selectbox("Base en Bs a", list(TASAS_BCV), format_func=TASAS_BCV.get, key=k("tasa_base"))
+            t3.selectbox("IVA en Bs a", list(TASAS_BCV), format_func=TASAS_BCV.get, key=k("tasa_iva"))
         i1, i2 = st.columns([2, 1], vertical_alignment="bottom")
         i1.toggle("Pagar IGTF sobre la parte pagada en dólares", key=k("igtf"),
                   help="Impuesto a las Grandes Transacciones Financieras: se suma al costo el % sobre la base pagada en $.")
@@ -593,6 +613,8 @@ with tab_costeo:
             flete=valor("flete"), flete_moneda=valor("flete_moneda"), toneladas=valor("toneladas"),
             flete_carga_real=valor("flete_carga_real"), descuentos=leer_descuentos(valor("descuentos")),
             igtf=valor("igtf"), igtf_pct=valor("igtf_pct"),
+            tasa_base=valor("tasa_modo") if valor("tasa_modo") != "mixta" else valor("tasa_base"),
+            tasa_iva=valor("tasa_modo") if valor("tasa_modo") != "mixta" else valor("tasa_iva"),
             retencion_iva=valor("retencion_iva"), retencion_pct=valor("retencion_pct"),
         )
     except ErrorDeDatos as e:
@@ -729,6 +751,7 @@ with tab_costeo:
         reemplazar_lineas(pd.DataFrame(filas, columns=COLS_LINEAS))
         if not ss.get("bcv"):
             ss.bcv, ss.interna = 210.5, 285.0
+            ss.bcv_eur = ss.get("bcv_eur") or 245.1
 
 
     if ss.catalogo_ejemplo and not lineas:
@@ -738,7 +761,7 @@ with tab_costeo:
     # Resultado
     # =============================================================================
     st.subheader("3 · Resultado")
-    params = Parametros(fecha=fecha, tasa_bcv=bcv or 0.0, tasa_interna=interna or 0.0, iva=iva,
+    params = Parametros(fecha=fecha, tasa_bcv=bcv or 0.0, tasa_bcv_eur=bcv_eur or 0.0, tasa_interna=interna or 0.0, iva=iva,
                         margen_min=m_min, margen_obj=m_obj, iva_en_costo=iva_costo)
     if not lineas:
         st.info("Agrega productos para ver el costeo.")
@@ -780,8 +803,8 @@ with tab_costeo:
             st.markdown(md(
                 f"| Concepto | Monto |\n|---|---:|\n"
                 f"| Base en dólares | $ {fmt.num(pl.usd)} |\n"
-                f"| Base en Bs a BCV | Bs {fmt.num(pl.bs_base)} <br><small>$ {fmt.num(pl.usd_base_en_bs)} × {fmt.num(params.tasa_bcv)}</small> |\n"
-                f"| IVA en Bs a BCV | Bs {fmt.num(pl.bs_iva)} <br><small>$ {fmt.num(pl.usd_iva)} × {fmt.num(params.tasa_bcv)}</small> |\n"
+                f"| Base en Bs a BCV {_sim(cond.tasa_base)} | Bs {fmt.num(pl.bs_base)} <br><small>$ {fmt.num(pl.usd_base_en_bs)} × {fmt.num(params.tasa(cond.tasa_base))}</small> |\n"
+                f"| IVA en Bs a BCV {_sim(cond.tasa_iva)} | Bs {fmt.num(pl.bs_iva)} <br><small>$ {fmt.num(pl.usd_iva)} × {fmt.num(params.tasa(cond.tasa_iva))}</small> |\n"
                 + (f"| ↳ Retención IVA {pl.retencion_pct:g}% (al SENIAT) | Bs {fmt.num(pl.bs_iva_retenido)} |\n"
                    f"| ↳ IVA al proveedor ({100 - pl.retencion_pct:g}%) | Bs {fmt.num(pl.bs_iva_proveedor)} |\n" if pl.retencion_pct else "")
                 + f"| **Total en bolívares** | **Bs {fmt.num(pl.bs_total)}** |\n"
@@ -857,9 +880,9 @@ with tab_costeo:
             elif _p == 1:
                 base_txt = "pagada en $ (× 1)"
             elif _p == 0:
-                base_txt = "Bs a BCV (× BCV ÷ interna)"
+                base_txt = f"Bs a BCV {_sim(cond.tasa_base)} (× BCV ÷ interna)"
             else:
-                base_txt = f"{fmt.num(_p * 100, 1)}% en $ + {fmt.num((1 - _p) * 100, 1)}% Bs a BCV"
+                base_txt = f"{fmt.num(_p * 100, 1)}% en $ + {fmt.num((1 - _p) * 100, 1)}% Bs a BCV {_sim(cond.tasa_base)}"
                 if cond.pago == "monto_gandola":
                     base_txt = f"$ {fmt.num(r.usd_linea)} en $ por {fmt.num(r.linea.gandolas)} gandola · " + base_txt
             pasos = [
@@ -872,7 +895,7 @@ with tab_costeo:
                  "+ " + fmt.num(r.iva_pieza, 4)),
                 (f"**Pieza con IVA ({mon})**", f"**{fmt.num(r.pieza_con_iva, 4)}**"),
                 (f"Base a $ interno: {base_txt} (× {fmt.num(r.base_int / r.pieza_sin_iva, 4)})", fmt.num(r.base_int, 4)),
-                (f"IVA a $ interno: {'÷ interna' if cond.moneda == 'bs' else 'Bs a BCV'} (× {fmt.num(res.factor_iva, 4)})"
+                (f"IVA a $ interno: {'÷ interna' if cond.moneda == 'bs' else 'Bs a BCV ' + _sim(cond.tasa_iva)} (× {fmt.num(res.factor_iva, 4)})"
                  + ("" if iva_costo else " · no se suma"), ("+ " if iva_costo else "") + fmt.num(r.iva_int, 4)),
                 (f"Flete: {fmt.num(res.flete_kg, 4)} $/kg × {fmt.num(ln.peso)} kg", "+ " + fmt.num(r.flete_pieza, 4)),
                 *([(f"IGTF {cond.igtf_pct:g}% sobre la base pagada en $ ({fmt.num(r.pieza_sin_iva * (_p or 0), 4)})",

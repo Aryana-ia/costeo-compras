@@ -36,28 +36,37 @@ class TasaBCV:
     fuente: str
 
 
-def leer_html_bcv(html: str) -> TasaBCV:
-    """Extrae la tasa del dólar y la fecha valor del HTML de bcv.org.ve."""
-    m = re.search(r'id="dolar".*?<strong>\s*([\d.,]+)\s*</strong>', html, re.S)
+BLOQUES = {"usd": ("dolar", "dólar"), "eur": ("euro", "euro")}
+URLS_RESPALDO = {"usd": URL_RESPALDO, "eur": "https://ve.dolarapi.com/v1/euros/oficial"}
+
+
+def leer_html_bcv(html: str, moneda: str = "usd") -> TasaBCV:
+    """Extrae la tasa (dólar o euro) y la fecha valor del HTML de bcv.org.ve."""
+    bloque, nombre = BLOQUES[moneda]
+    m = re.search(rf'id="{bloque}".*?<strong>\s*([\d.,]+)\s*</strong>', html, re.S)
     if not m:
-        raise ErrorDeDatos("La página del BCV no trae el bloque del dólar (puede haber cambiado su diseño).")
+        raise ErrorDeDatos(f"La página del BCV no trae el bloque del {nombre} (puede haber cambiado su diseño).")
     valor = _num(m[1])
     f = re.search(r'class="date-display-single"[^>]*content="(\d{4}-\d{2}-\d{2})', html)
     if not valor > 0:
-        raise ErrorDeDatos(f"No se pudo leer el número de la tasa BCV ({m[1]!r}).")
+        raise ErrorDeDatos(f"No se pudo leer el número de la tasa BCV del {nombre} ({m[1]!r}).")
     return TasaBCV(valor, date.fromisoformat(f[1]) if f else None, "bcv.org.ve")
 
 
-def _desde_bcv() -> TasaBCV:
+def _html_bcv() -> str:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")  # aviso de certificado no verificado
         r = requests.get(URL_BCV, timeout=TIMEOUT, verify=False, headers=CABECERAS)
     r.raise_for_status()
-    return leer_html_bcv(r.text)
+    return r.text
 
 
-def _desde_respaldo() -> TasaBCV:
-    r = requests.get(URL_RESPALDO, timeout=TIMEOUT, headers=CABECERAS)
+def _desde_bcv(moneda: str = "usd") -> TasaBCV:
+    return leer_html_bcv(_html_bcv(), moneda)
+
+
+def _desde_respaldo(moneda: str = "usd") -> TasaBCV:
+    r = requests.get(URLS_RESPALDO[moneda], timeout=TIMEOUT, headers=CABECERAS)
     r.raise_for_status()
     d = r.json()
     valor = _num(d.get("promedio"))
@@ -67,14 +76,36 @@ def _desde_respaldo() -> TasaBCV:
     return TasaBCV(valor, date.fromisoformat(fecha) if re.match(r"\d{4}-\d{2}-\d{2}$", fecha) else None, "ve.dolarapi.com")
 
 
-def obtener_tasa_bcv() -> TasaBCV:
+def obtener_tasa_bcv(moneda: str = "usd") -> TasaBCV:
     """Intenta el BCV y, si falla, el respaldo. Lanza ErrorDeDatos con ambos motivos."""
+    nombre_m = "$" if moneda == "usd" else "€"
     errores = []
     for nombre, fuente in (("BCV", _desde_bcv), ("respaldo", _desde_respaldo)):
         try:
-            return fuente()
+            return fuente(moneda)
         except requests.RequestException:
             errores.append(f"{nombre} sin respuesta")
         except (ValueError, ErrorDeDatos) as e:
             errores.append(f"{nombre}: {e}")
-    raise ErrorDeDatos("No se pudo traer la tasa BCV automáticamente. Escríbela a mano. (" + " · ".join(errores) + ")")
+    raise ErrorDeDatos(f"No se pudo traer la tasa BCV {nombre_m} automáticamente. Escríbela a mano. (" + " · ".join(errores) + ")")
+
+
+def obtener_tasas_bcv() -> dict:
+    """Dólar y euro del BCV con una sola consulta a la página (respaldo por separado si falla).
+
+    Devuelve {"usd": TasaBCV | ErrorDeDatos, "eur": TasaBCV | ErrorDeDatos}.
+    """
+    salida = {}
+    try:
+        html = _html_bcv()
+    except requests.RequestException:
+        html = None
+    for moneda in ("usd", "eur"):
+        try:
+            salida[moneda] = leer_html_bcv(html, moneda) if html else obtener_tasa_bcv(moneda)
+        except ErrorDeDatos:
+            try:
+                salida[moneda] = obtener_tasa_bcv(moneda)
+            except ErrorDeDatos as e:
+                salida[moneda] = e
+    return salida

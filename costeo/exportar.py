@@ -10,7 +10,7 @@ import pandas as pd
 from PIL import Image, ImageDraw, ImageFont
 
 from . import formato as fmt
-from .calculo import describir_iva, describir_pago
+from .calculo import describir_iva, describir_pago, describir_tasas
 from .modelos import Condiciones, Parametros, Proveedor, Resultado
 
 FUENTES = Path(__file__).resolve().parent.parent / "assets" / "fonts"
@@ -72,7 +72,8 @@ def resumen_pago(res: Resultado, p: Parametros, prov: Proveedor, cond: Condicion
     filas = [
         ("Proveedor", prov.nombre),
         ("Fecha del pedido", fmt.fecha(p.fecha)),
-        ("Tasa BCV", p.tasa_bcv),
+        ("Tasa BCV $", p.tasa_bcv),
+        ("Tasa BCV €", p.tasa_bcv_eur if describir_tasas(cond) else None),
         ("Tasa interna", p.tasa_interna),
         ("Forma de pago", describir_pago(cond)),
         ("IVA", describir_iva(cond, p.iva)),
@@ -308,7 +309,9 @@ def _textos_cabecera(res: Resultado, p: Parametros, cond: Condiciones, ancho: in
     mon = "Bs" if cond.moneda == "bs" else "$"
     desc = " + ".join(f"{fmt.num(x)}%" for x in cond.descuentos)
     return [
-        (f"Pedido {fmt.fecha(p.fecha)}  ·  BCV {fmt.num(p.tasa_bcv)}  ·  Interna {fmt.num(p.tasa_interna)}", F["sub"], C["head2"]),
+        (f"Pedido {fmt.fecha(p.fecha)}  ·  BCV $ {fmt.num(p.tasa_bcv)}"
+         + (f"  ·  BCV € {fmt.num(p.tasa_bcv_eur)}" if describir_tasas(cond) else "")
+         + f"  ·  Interna {fmt.num(p.tasa_interna)}", F["sub"], C["head2"]),
         *[(l, F["sub"], C["head2"]) for l in _envolver(medidor, f"Cotiza en {mon} · {describir_iva(cond, p.iva)} · {describir_pago(cond)}", F["sub"], ancho)],
         *[(l, F["small"], C["head3"]) for l in _envolver(medidor, (f"Desc. {desc} · " if desc else "") + f"Flete {fmt.num(res.flete_kg, 4)} $/kg · Márgenes {p.margen_min:g}% / {p.margen_obj:g}% · costos en $ interno", F["small"], ancho)],
     ]
