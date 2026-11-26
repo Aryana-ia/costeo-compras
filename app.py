@@ -505,7 +505,7 @@ with tab_costeo:
     def valores_widgets(c: Condiciones) -> dict:
         """Condiciones → valores en el formato que usan los widgets."""
         return {
-            "moneda": c.moneda, "precio_por": c.precio_por, "iva_incluido": c.iva_incluido, "iva_base": c.iva_base,
+            "moneda": c.moneda, "precio_por": c.precio_por, "iva_incluido": c.iva_incluido, "iva_base": c.iva_base, "iva_monto": float(c.iva_monto),
             "iva_sin_descuento": c.iva_sin_descuento,
             "pago": c.pago, "pago_valor": float(c.pago_valor), "flete": float(c.flete), "flete_moneda": c.flete_moneda,
             "toneladas": float(c.toneladas), "flete_carga_real": c.flete_carga_real,
@@ -555,6 +555,13 @@ with tab_costeo:
     g2.selectbox("Precio cotizado por", list(PRECIO_POR), format_func=PRECIO_POR.get, key=k("precio_por"))
     g3.selectbox("¿El precio incluye IVA?", [False, True], format_func=lambda v: "Sí, viene con IVA" if v else "No, viene sin IVA", key=k("iva_incluido"))
     g4.selectbox("IVA calculado sobre", list(IVA_BASE), format_func=IVA_BASE.get, key=k("iva_base"))
+    if valor("iva_base") == "monto":
+        m1, m2 = st.columns([1, 2], vertical_alignment="bottom")
+        m1.number_input(f"Monto del IVA facturado ({'Bs' if valor('moneda') == 'bs' else '$'})", min_value=0.0, step=100.0,
+                        format="%.2f", key=k("iva_monto"),
+                        help="El IVA total de la factura. Se reparte entre los productos según el valor de cada uno (base sin IVA).")
+        m2.caption("El monto se reparte entre todos los productos en proporción a su base sin IVA. "
+                   "Es un dato de esta factura: cámbialo en cada cotización.")
     r1, r2 = st.columns([2, 1], vertical_alignment="bottom")
     r1.toggle("Aplicamos retención de IVA (solo informativo)", key=k("retencion_iva"),
               help="Del IVA solo se le paga al proveedor la parte no retenida; lo retenido se entera al SENIAT. "
@@ -609,7 +616,7 @@ with tab_costeo:
     try:
         cond = Condiciones(
             moneda=valor("moneda"), precio_por=valor("precio_por"), iva_incluido=valor("iva_incluido"),
-            iva_base=valor("iva_base"), iva_sin_descuento=valor("iva_sin_descuento"), pago=valor("pago"), pago_valor=valor("pago_valor"),
+            iva_base=valor("iva_base"), iva_monto=valor("iva_monto"), iva_sin_descuento=valor("iva_sin_descuento"), pago=valor("pago"), pago_valor=valor("pago_valor"),
             flete=valor("flete"), flete_moneda=valor("flete_moneda"), toneladas=valor("toneladas"),
             flete_carga_real=valor("flete_carga_real"), descuentos=leer_descuentos(valor("descuentos")),
             igtf=valor("igtf"), igtf_pct=valor("igtf_pct"),
@@ -890,8 +897,10 @@ with tab_costeo:
                 ("Precio por pieza", fmt.num(r.precio_pieza, 4)),
                 *([(f"Se quita el IVA (÷ {fmt.num(1 + res.tasa_iva_efectiva, 4)})", fmt.num(r.lista_sin_iva, 4))] if cond.iva_incluido else []),
                 (f"Descuentos sobre la base: {' → '.join(fmt.num(x) + '%' for x in descs) or 'ninguno'}", fmt.num(r.pieza_sin_iva, 4)),
-                (f"IVA {iva:g}%{' sobre el 10%' if cond.iva_base == '10' else ''}"
-                 + (f" sobre la base sin descuento ({fmt.num(r.lista_sin_iva, 4)})" if cond.iva_sin_descuento and r.factor_desc != 1 else ""),
+                (((f"IVA por monto: {fmt.num(cond.iva_monto)} repartido según la base (= {fmt.num(res.tasa_iva_efectiva * 100, 2)}% de la base)")
+                 if cond.iva_base == "monto" else
+                 f"IVA {iva:g}%{' sobre el 10%' if cond.iva_base == '10' else ''}"
+                 + (f" sobre la base sin descuento ({fmt.num(r.lista_sin_iva, 4)})" if cond.iva_sin_descuento and r.factor_desc != 1 else "")),
                  "+ " + fmt.num(r.iva_pieza, 4)),
                 (f"**Pieza con IVA ({mon})**", f"**{fmt.num(r.pieza_con_iva, 4)}**"),
                 (f"Base a $ interno: {base_txt} (× {fmt.num(r.base_int / r.pieza_sin_iva, 4)})", fmt.num(r.base_int, 4)),

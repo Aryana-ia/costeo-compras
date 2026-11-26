@@ -295,3 +295,31 @@ def test_falta_tasa_euro():
     assert any("BCV €" in e for e in res.errores)
     sin_euro = calcular(params(), Condiciones(moneda="usd"), [cabilla_media()])
     assert not sin_euro.errores
+
+
+# --------------------------------------------------------------------------- IVA por monto
+def test_iva_por_monto_se_reparte_segun_la_base():
+    """La factura trae un IVA fijo (ej. 300 $) que se reparte entre los productos según su base."""
+    lineas = [Linea("A", 10, 100, 10, 200, 200), Linea("B", 30, 100, 10, 200, 200)]   # bases 1.000 y 3.000
+    cond = Condiciones(moneda="usd", iva_base="monto", iva_monto=300)
+    res = calcular(params(), cond, lineas)
+    a, b = res.lineas
+    assert a.total_iva == pytest.approx(75) and b.total_iva == pytest.approx(225)      # 300 × 1/4 y 3/4
+    assert a.iva_pieza == pytest.approx(7.5) and b.iva_pieza == pytest.approx(7.5)
+    assert res.totales.iva == pytest.approx(300)
+    assert res.plan.bs_iva == pytest.approx(300 * BCV)
+    assert a.iva_int == pytest.approx(7.5 * F)                                          # se sigue pagando en Bs a BCV
+    assert a.costo_pieza == pytest.approx(100 + 7.5 * F)
+
+
+def test_iva_por_monto_con_descuento_y_retencion():
+    lineas = [Linea("A", 10, 100, 10, 200, 200)]
+    cond = Condiciones(moneda="usd", iva_base="monto", iva_monto=144, descuentos=[10], retencion_iva=True)
+    res = calcular(params(), cond, lineas)
+    assert res.lineas[0].iva_pieza == pytest.approx(14.4)
+    assert res.plan.bs_iva_retenido == pytest.approx(144 * BCV * 0.75)
+
+
+def test_iva_por_monto_en_cero_avisa():
+    res = calcular(params(), Condiciones(moneda="usd", iva_base="monto"), [cabilla_media()])
+    assert res.lineas[0].iva_pieza == 0 and any("monto del IVA" in a for a in res.avisos)

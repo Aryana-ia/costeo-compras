@@ -201,7 +201,8 @@ def _reconstruir(det: pd.DataFrame, proveedores: list[Proveedor]) -> dict:
     cond = Condiciones.desde_dict({
         **base, "moneda": moneda, "pago": pago, "pago_valor": pago_valor,
         "iva_incluido": iva_txt.startswith("Precio con IVA"),
-        "iva_base": "10" if "sobre el 10%" in iva_txt else "100",
+        "iva_base": "monto" if "IVA por monto" in iva_txt else ("10" if "sobre el 10%" in iva_txt else "100"),
+        "iva_monto": _num(m_monto[1]) if (m_monto := re.search(r"IVA por monto ([\d.,]+)", iva_txt)) else 0.0,
         "iva_sin_descuento": "sin descuento" in iva_txt,
         "igtf": "IGTF" in str(f0.get("Forma de pago", "")),
         "retencion_iva": "retención" in iva_txt,

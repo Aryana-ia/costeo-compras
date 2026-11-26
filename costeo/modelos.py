@@ -15,7 +15,7 @@ from typing import Any
 # ---------------------------------------------------------------------------
 MONEDAS = {"usd": "Dólares", "bs": "Bolívares"}
 PRECIO_POR = {"pieza": "Pieza", "tonelada": "Tonelada", "kg": "Kilo"}
-IVA_BASE = {"100": "El 100% de la base", "10": "Solo el 10% de la base"}
+IVA_BASE = {"100": "El 100% de la base", "10": "Solo el 10% de la base", "monto": "Un monto fijo (lo escribo yo)"}
 IVA_DESCUENTO = {
     False: "Sobre la base con descuento",
     True: "Sobre la base sin descuento (IVA full)",
@@ -107,6 +107,7 @@ class Condiciones:
     precio_por: str = "pieza"
     iva_incluido: bool = False
     iva_base: str = "100"
+    iva_monto: float = 0.0           # monto total del IVA facturado (iva_base = "monto"), en la moneda de la cotización
     iva_sin_descuento: bool = False  # el IVA se calcula sobre la base ANTES de descuentos (ACEROS LAMINADOS)
     pago: str = "divisa"
     pago_valor: float = 0.0          # % (pago = pct) o monto en $ (pago = monto)
@@ -143,6 +144,7 @@ class Condiciones:
                 )
         self.pago_valor = _num(self.pago_valor)
         self.flete = _num(self.flete)
+        self.iva_monto = _num(self.iva_monto)
         self.toneladas = _num(self.toneladas, 32.0) or 32.0
         self.descuentos = [d for d in (_num(x) for x in (self.descuentos or [])) if d]
         self.igtf = bool(self.igtf)
@@ -164,6 +166,7 @@ class Condiciones:
         usa_valor = self.pago in ("pct", "monto", "monto_gandola")
         return (
             self.moneda, self.precio_por, bool(self.iva_incluido), self.iva_base, bool(self.iva_sin_descuento),
+            round(self.iva_monto, 6) if self.iva_base == "monto" else 0.0,
             self.pago, round(self.pago_valor, 6) if usa_valor else 0.0,
             round(self.flete, 6), self.flete_moneda, round(self.toneladas, 6),
             bool(self.flete_carga_real), tuple(round(d, 6) for d in self.descuentos),

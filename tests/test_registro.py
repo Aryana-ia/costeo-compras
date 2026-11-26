@@ -113,3 +113,16 @@ def test_imagenes_por_hojas_y_pdf():
     assert len(imagenes(calcular(P, COND, lineas[:2]), P, PROV, COND)) == 1
     pdf = pdf_imprimir(res, P, PROV, COND, "Ariana")
     assert pdf[:5] == b"%PDF-"
+
+
+def test_reabrir_costeo_con_iva_por_monto():
+    from costeo.registro import abrir_costeo
+    cond = Condiciones(moneda="usd", iva_base="monto", iva_monto=1234.5)
+    lineas = [Linea("A", 10, 100, 10, 200, 200), Linea("B", 30, 100, 10, 200, 200)]
+    res = calcular(P, cond, lineas)
+    c = filas_costeo(res, P, PROV, cond, "X5")
+    for sin_estado in (False, True):
+        e = abrir_costeo(c.drop(columns="Estado") if sin_estado else c, "X5", [PROV])
+        assert e["condiciones"].iva_base == "monto" and e["condiciones"].iva_monto == pytest.approx(1234.5)
+        res2 = calcular(e["parametros"], e["condiciones"], e["lineas"])
+        assert res2.lineas[1].costo_pieza == pytest.approx(res.lineas[1].costo_pieza)

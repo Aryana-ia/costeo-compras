@@ -137,6 +137,21 @@ def calcular(p: Parametros, cond: Condiciones, lineas: list[Linea]) -> Resultado
 
     validas = [r for r in res if _ok(r.pieza_sin_iva) and _ok(r.linea.cantidad) and r.linea.cantidad > 0]
     total_sin = sum(r.total_sin_iva for r in validas)
+    if cond.iva_base == "monto":
+        # IVA por monto: el total facturado se reparte entre los productos según su base sin IVA,
+        # igual que se reparte un gasto del pedido. Todos quedan con el mismo % efectivo.
+        if cond.iva_monto <= 0:
+            avisos.append("Escribe el monto del IVA facturado (está en 0).")
+        tasa_monto = cond.iva_monto / total_sin if total_sin > 0 else 0.0
+        for r in res:
+            if not _ok(r.pieza_sin_iva):
+                continue
+            r.iva_pieza = r.pieza_sin_iva * tasa_monto
+            r.pieza_con_iva = r.pieza_sin_iva + r.iva_pieza
+            r.kg_con_iva = r.pieza_con_iva / r.linea.peso
+            r.total_iva = r.iva_pieza * r.total_sin_iva / r.pieza_sin_iva if r.pieza_sin_iva else 0.0
+            r.total_con_iva = r.total_sin_iva + r.total_iva
+        tasa_iva = tasa_monto
     total_iva = sum(r.total_iva for r in validas)
     total_kg = sum(r.kg_total for r in validas)
     if any(_ok(r.pieza_sin_iva) and not (_ok(r.linea.cantidad) and r.linea.cantidad > 0) for r in res):
@@ -321,7 +336,10 @@ def describir_tasas(cond: Condiciones) -> str:
 
 
 def describir_iva(cond: Condiciones, iva: float) -> str:
-    base = f"IVA {iva:g}% sobre el 10%" if cond.iva_base == "10" else f"IVA {iva:g}%"
+    if cond.iva_base == "monto":
+        base = f"IVA por monto {_n(cond.iva_monto)}"
+    else:
+        base = f"IVA {iva:g}% sobre el 10%" if cond.iva_base == "10" else f"IVA {iva:g}%"
     if cond.iva_sin_descuento and cond.descuentos:
         base += " sin descuento (full)"
     if cond.retencion_iva:

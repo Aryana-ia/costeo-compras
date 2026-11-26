@@ -49,6 +49,7 @@ Todo se lleva a **dólares a tasa interna** (“$ interno”), que es la unidad 
 | 2 | Quitar el IVA si viene incluido | `base = precio ÷ (1 + IVA efectivo)` |
 | 3 | Descuentos, **siempre sobre la base**, en cascada | `base × (1 − d1) × (1 − d2) …` |
 | 4 | IVA | `base neta × 16 %` (o `× 16 % × 10 %` si el proveedor cobra IVA sobre el 10 %) |
+| 4c | IVA por monto | Si en el perfil se elige *IVA calculado sobre → Un monto fijo*, se escribe el IVA total de la factura y se reparte entre los productos según su base sin IVA (todos quedan con el mismo % efectivo). Se paga en Bs a BCV igual que el IVA calculado. |
 | 4b | IVA «full» (ACEROS LAMINADOS) | Si el perfil dice *IVA sobre la base sin descuento*: `base ANTES de descuentos × 16 %`. La base que se paga sí lleva el descuento. |
 | 5a | Base a $ interno | Parte pagada en $ (o Bs a tasa interna): `× 1` · parte pagada en Bs a BCV: `× BCV ÷ interna` |
 | 5b | IVA a $ interno | Cotización en $: el IVA **siempre** se paga en Bs a BCV → `× BCV ÷ interna` |
