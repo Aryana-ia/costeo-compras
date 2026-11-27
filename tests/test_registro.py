@@ -126,3 +126,17 @@ def test_reabrir_costeo_con_iva_por_monto():
         assert e["condiciones"].iva_base == "monto" and e["condiciones"].iva_monto == pytest.approx(1234.5)
         res2 = calcular(e["parametros"], e["condiciones"], e["lineas"])
         assert res2.lineas[1].costo_pieza == pytest.approx(res.lineas[1].costo_pieza)
+
+
+def test_reabrir_costeo_con_gasto_adicional():
+    from costeo.registro import abrir_costeo
+    cond = Condiciones(moneda="usd", gasto_monto=500, gasto_moneda="bs", gasto_reparto="kg", gasto_concepto="estiba")
+    lineas = [Linea("A", 10, 100, 10, 200, 200), Linea("B", 30, 100, 40, 200, 200)]
+    res = calcular(P, cond, lineas)
+    c = filas_costeo(res, P, PROV, cond, "X7")
+    for sin_estado in (False, True):
+        e = abrir_costeo(c.drop(columns="Estado") if sin_estado else c, "X7", [PROV])
+        g = e["condiciones"]
+        assert (g.gasto_monto, g.gasto_moneda, g.gasto_reparto, g.gasto_concepto) == (500, "bs", "kg", "estiba")
+        res2 = calcular(e["parametros"], g, e["lineas"])
+        assert res2.lineas[1].costo_pieza == pytest.approx(res.lineas[1].costo_pieza)

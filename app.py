@@ -46,7 +46,7 @@ from costeo.historial import ejemplo as historial_ejemplo
 from costeo.registro import abrir_costeo, filas_costeo, filas_historial, nuevo_id, reemplazar, resumen_costeos
 from costeo.tasas import obtener_tasas_bcv
 from costeo.modelos import (
-    FORMAS_PAGO, IVA_BASE, IVA_DESCUENTO, MONEDAS, TASAS_BCV, MONEDAS_FLETE, PRECIO_POR,
+    FORMAS_PAGO, IVA_BASE, IVA_DESCUENTO, MONEDAS, REPARTO_GASTO, TASAS_BCV, MONEDAS_FLETE, PRECIO_POR,
     Condiciones, ErrorDeDatos, Linea, Parametros, Proveedor,
 )
 
@@ -75,6 +75,14 @@ if ss.get("_firma_costeo") != FIRMA_COSTEO and "almacen" in ss:
         for _clave in list(ss.keys()):
             del ss[_clave]
 ss._firma_costeo = FIRMA_COSTEO
+
+
+def _fila_gasto(cond, pl) -> str:
+    """Fila del gasto adicional en la tabla «Cómo se paga» (vacía si no hay)."""
+    if not cond.gasto_monto:
+        return ""
+    concepto = f" ({cond.gasto_concepto})" if cond.gasto_concepto else ""
+    return f"| Gasto adicional{concepto} | $ int. {fmt.num(pl.gasto_adicional)} |\n"
 
 
 def _sim(moneda: str) -> str:
@@ -509,6 +517,8 @@ with tab_costeo:
             "iva_sin_descuento": c.iva_sin_descuento,
             "pago": c.pago, "pago_valor": float(c.pago_valor), "flete": float(c.flete), "flete_moneda": c.flete_moneda,
             "toneladas": float(c.toneladas), "flete_carga_real": c.flete_carga_real,
+            "gasto_monto": float(c.gasto_monto), "gasto_moneda": c.gasto_moneda, "gasto_reparto": c.gasto_reparto,
+            "gasto_concepto": c.gasto_concepto,
             "descuentos": "; ".join(fmt.num(d).rstrip("0").rstrip(",") for d in c.descuentos),
             "igtf": c.igtf, "igtf_pct": float(c.igtf_pct),
             "tasa_modo": "mixta" if c.tasa_base != c.tasa_iva else c.tasa_base,
@@ -613,12 +623,25 @@ with tab_costeo:
         st.caption(md(f"Tarifa de flete: {fmt.num(valor('flete'))} ÷ {fmt.num(valor('toneladas') * 1000, 0)} kg = "
                       f"**{fmt.num(_tarifa, 6)} por kilo** ({MONEDAS_FLETE[valor('flete_moneda')]}), que se multiplica por el peso de cada producto."))
 
+    # Gasto adicional del pedido (estiba, seguro, comisión…): se reparte entre todos los productos
+    st.markdown("**Gasto adicional**")
+    ga1, ga2, ga3, ga4 = st.columns([1, 1, 1.3, 1.5])
+    ga1.number_input("Monto del gasto", min_value=0.0, step=50.0, format="%.2f", key=k("gasto_monto"),
+                     help="Gasto del pedido completo. Se suma al costo repartido entre todos los productos.")
+    ga2.selectbox("Moneda del gasto", list(MONEDAS_FLETE), format_func=MONEDAS_FLETE.get, key=k("gasto_moneda"))
+    ga3.selectbox("Repartir", list(REPARTO_GASTO), format_func=REPARTO_GASTO.get, key=k("gasto_reparto"),
+                  help="Según el valor: cada producto carga en proporción a su base sin IVA (como el IVA por monto). "
+                       "Según los kilos: en proporción a su peso (como el flete).")
+    ga4.text_input("Concepto (opcional)", key=k("gasto_concepto"), placeholder="Ej. estiba, seguro, comisión")
+
     try:
         cond = Condiciones(
             moneda=valor("moneda"), precio_por=valor("precio_por"), iva_incluido=valor("iva_incluido"),
             iva_base=valor("iva_base"), iva_monto=valor("iva_monto"), iva_sin_descuento=valor("iva_sin_descuento"), pago=valor("pago"), pago_valor=valor("pago_valor"),
             flete=valor("flete"), flete_moneda=valor("flete_moneda"), toneladas=valor("toneladas"),
             flete_carga_real=valor("flete_carga_real"), descuentos=leer_descuentos(valor("descuentos")),
+            gasto_monto=valor("gasto_monto"), gasto_moneda=valor("gasto_moneda"), gasto_reparto=valor("gasto_reparto"),
+            gasto_concepto=valor("gasto_concepto"),
             igtf=valor("igtf"), igtf_pct=valor("igtf_pct"),
             tasa_base=valor("tasa_modo") if valor("tasa_modo") != "mixta" else valor("tasa_base"),
             tasa_iva=valor("tasa_modo") if valor("tasa_modo") != "mixta" else valor("tasa_iva"),
@@ -817,6 +840,7 @@ with tab_costeo:
                 + f"| **Total en bolívares** | **Bs {fmt.num(pl.bs_total)}** |\n"
                 + (f"| ↳ De eso, al proveedor | Bs {fmt.num(pl.bs_al_proveedor)} |\n" if pl.retencion_pct else "")
                 + f"| Flete | $ int. {fmt.num(pl.flete_int)} |\n"
+                + _fila_gasto(cond, pl)
                 + (f"| IGTF {cond.igtf_pct:g}% (sobre $ {fmt.num(pl.usd)}) | $ {fmt.num(pl.igtf)} |\n" if cond.igtf else "")
                 + f"| **Gasto total en $ interno** | **$ {fmt.num(pl.gasto_int)}** |\n"), unsafe_allow_html=True)
             st.caption(md(f"{describir_pago(cond)}. Los Bs se llevan a $ interno dividiendo entre {fmt.num(params.tasa_interna)}."))
@@ -828,7 +852,8 @@ with tab_costeo:
                 + f"| **Total en bolívares** | **Bs {fmt.num(pl.bs_total)}** |\n"
                 + (f"| ↳ De eso, al proveedor | Bs {fmt.num(pl.bs_al_proveedor)} |\n" if pl.retencion_pct else "")
                 + f"| Flete | $ int. {fmt.num(pl.flete_int)} |\n"
-                f"| **Gasto total en $ interno** | **$ {fmt.num(pl.gasto_int)}** |\n"), unsafe_allow_html=True)
+                + _fila_gasto(cond, pl)
+                + f"| **Gasto total en $ interno** | **$ {fmt.num(pl.gasto_int)}** |\n"), unsafe_allow_html=True)
             st.caption(f"Bolívares ÷ tasa interna {fmt.num(params.tasa_interna)}.")
 
     if pl.retencion_pct:
@@ -907,6 +932,9 @@ with tab_costeo:
                 (f"IVA a $ interno: {'÷ interna' if cond.moneda == 'bs' else 'Bs a BCV ' + _sim(cond.tasa_iva)} (× {fmt.num(res.factor_iva, 4)})"
                  + ("" if iva_costo else " · no se suma"), ("+ " if iva_costo else "") + fmt.num(r.iva_int, 4)),
                 (f"Flete: {fmt.num(res.flete_kg, 4)} $/kg × {fmt.num(ln.peso)} kg", "+ " + fmt.num(r.flete_pieza, 4)),
+                *([(f"Gasto adicional{(' (' + cond.gasto_concepto + ')') if cond.gasto_concepto else ''}: "
+                    f"{fmt.num(res.plan.gasto_adicional)} $ repartido según {'los kilos' if cond.gasto_reparto == 'kg' else 'el valor'}",
+                    "+ " + fmt.num(r.gasto_pieza, 4))] if cond.gasto_monto else []),
                 *([(f"IGTF {cond.igtf_pct:g}% sobre la base pagada en $ ({fmt.num(r.pieza_sin_iva * (_p or 0), 4)})",
                     "+ " + fmt.num(r.igtf_pieza, 4))] if cond.igtf and r.igtf_pieza else []),
                 ("**Costo por pieza ($ interno)**", f"**{fmt.num(r.costo_pieza, 4)}**"),

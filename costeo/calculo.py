@@ -230,6 +230,12 @@ def calcular(p: Parametros, cond: Condiciones, lineas: list[Linea]) -> Resultado
     kg_reparto = min(total_kg, kg_gandola) if cond.flete_carga_real and total_kg > 0 else kg_gandola
     flete_int = cond.flete * factor_flete(cond.flete_moneda, p)
     flete_kg = flete_int / kg_reparto if kg_reparto > 0 else 0.0
+    # Gasto adicional del pedido: se reparte entre todos los productos según su valor (base sin IVA) o sus kilos
+    gasto_int = cond.gasto_monto * factor_flete(cond.gasto_moneda, p)
+    if cond.gasto_reparto == "kg":
+        gasto_unit = gasto_int / total_kg if total_kg > 0 else 0.0      # $ por kilo
+    else:
+        gasto_unit = gasto_int / total_sin if total_sin > 0 else 0.0     # $ por cada unidad de base sin IVA
     if cond.flete <= 0:
         avisos.append("El flete está en 0: el costo no incluye flete.")
 
@@ -246,7 +252,9 @@ def calcular(p: Parametros, cond: Condiciones, lineas: list[Linea]) -> Resultado
         r.flete_pieza = flete_kg * ln.peso
         # IGTF: % sobre la parte de la base que se paga en dólares (no aplica al IVA ni a lo pagado en Bs)
         r.igtf_pieza = r.pieza_sin_iva * p_linea * cond.igtf_pct / 100 if cond.igtf and p_linea else 0.0
-        r.costo_pieza = r.base_int + (r.iva_int if p.iva_en_costo else 0.0) + r.flete_pieza + r.igtf_pieza
+        r.gasto_pieza = gasto_unit * (ln.peso if cond.gasto_reparto == "kg" else r.pieza_sin_iva)
+        r.costo_pieza = (r.base_int + (r.iva_int if p.iva_en_costo else 0.0) + r.flete_pieza + r.igtf_pieza
+                         + r.gasto_pieza)
         r.costo_kg = r.costo_pieza / ln.peso
         r.costo_min = r.costo_pieza * (1 + m_min)
         r.costo_obj = r.costo_pieza * (1 + m_obj)
@@ -279,6 +287,7 @@ def calcular(p: Parametros, cond: Condiciones, lineas: list[Linea]) -> Resultado
         base_int=total_sin * factor_base,
         iva_int=total_iva * factor_iva,
         flete_asignado=sum(r.flete_pieza * r.linea.cantidad for r in validas),
+        gasto_adicional=sum(r.gasto_pieza * r.linea.cantidad for r in validas),
         igtf=sum(r.igtf_pieza * r.linea.cantidad for r in validas),
         costo=sum(r.costo_pieza * r.linea.cantidad for r in validas),
     )
@@ -299,7 +308,9 @@ def calcular(p: Parametros, cond: Condiciones, lineas: list[Linea]) -> Resultado
     plan.igtf = tot.igtf
     plan.retencion_pct = cond.retencion_pct if cond.retencion_iva else 0.0  # solo informativo
     plan.tasa_bcv, plan.tasa_interna = p.tasa_bcv, p.tasa_interna
-    plan.gasto_int = tot.base_int + (tot.iva_int if p.iva_en_costo else 0.0) + tot.flete_asignado + tot.igtf
+    plan.gasto_adicional = tot.gasto_adicional
+    plan.gasto_int = (tot.base_int + (tot.iva_int if p.iva_en_costo else 0.0) + tot.flete_asignado + tot.igtf
+                      + tot.gasto_adicional)
     if cond.igtf and cond.moneda == "bs":
         avisos.append("El IGTF está activado, pero la cotización es en bolívares: no hay base en dólares, así que no se cobra.")
 

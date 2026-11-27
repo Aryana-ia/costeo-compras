@@ -323,3 +323,29 @@ def test_iva_por_monto_con_descuento_y_retencion():
 def test_iva_por_monto_en_cero_avisa():
     res = calcular(params(), Condiciones(moneda="usd", iva_base="monto"), [cabilla_media()])
     assert res.lineas[0].iva_pieza == 0 and any("monto del IVA" in a for a in res.avisos)
+
+
+# --------------------------------------------------------------------------- gasto adicional
+def test_gasto_adicional_segun_valor():
+    lineas = [Linea("A", 10, 100, 10, 200, 200), Linea("B", 30, 100, 40, 200, 200)]   # bases 1.000 y 3.000
+    cond = Condiciones(moneda="usd", gasto_monto=400, gasto_concepto="estiba")
+    res = calcular(params(iva=0), cond, lineas)
+    a, b = res.lineas
+    assert a.gasto_pieza * 10 == pytest.approx(100) and b.gasto_pieza * 30 == pytest.approx(300)
+    assert a.costo_pieza == pytest.approx(100 + 10)
+    assert res.plan.gasto_adicional == pytest.approx(400)
+    assert res.plan.gasto_int == pytest.approx(res.totales.costo)
+
+
+def test_gasto_adicional_segun_kilos_y_en_bs():
+    lineas = [Linea("A", 10, 100, 10, 200, 200), Linea("B", 30, 100, 40, 200, 200)]   # 100 kg y 1.200 kg
+    cond = Condiciones(moneda="usd", gasto_monto=1300 * INT, gasto_moneda="bs", gasto_reparto="kg")
+    res = calcular(params(iva=0), cond, lineas)
+    a, b = res.lineas
+    assert a.gasto_pieza == pytest.approx(10.0) and b.gasto_pieza == pytest.approx(40.0)   # 1 $ por kilo
+    assert res.plan.gasto_adicional == pytest.approx(1300)
+
+
+def test_sin_gasto_no_cambia_nada():
+    sin = calcular(params(), Condiciones(moneda="usd"), [cabilla_media()]).lineas[0]
+    assert sin.gasto_pieza == 0

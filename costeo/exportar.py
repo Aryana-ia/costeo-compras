@@ -43,6 +43,7 @@ def tabla(res: Resultado, p: Parametros, prov: Proveedor, cond: Condiciones, his
             "Base $ int.": r.base_int,
             "IVA $ int.": r.iva_int,
             "Flete $ int.": r.flete_pieza,
+            "Gasto adic. $ int.": r.gasto_pieza if cond.gasto_monto else None,
             "IGTF $": r.igtf_pieza,
             "Costo pieza $": r.costo_pieza,
             "Costo kg $": r.costo_kg,
@@ -100,6 +101,7 @@ def resumen_pago(res: Resultado, p: Parametros, prov: Proveedor, cond: Condicion
         ("      en $ interno", pl.en_dolares(pl.bs_al_proveedor)[1] if pl.retencion_pct else None),
         ("Total en Bs", pl.bs_total),
         ("Flete ($ interno)", pl.flete_int),
+        (f"Gasto adicional{(' · ' + cond.gasto_concepto) if cond.gasto_concepto else ''} ($ interno)", pl.gasto_adicional if cond.gasto_monto else None),
         ("IGTF ($)", pl.igtf),
         ("Gasto total ($ interno)", pl.gasto_int),
         ("Gasto por kilo ($ interno)", pl.gasto_int / t.kg if t.kg else None),
@@ -333,6 +335,10 @@ def _textos_resumen(res: Resultado, cond: Condiciones, ancho: int, F: dict, medi
         agregar(f"Pago: $ {fmt.num(pl.usd)} en dólares · Bs {fmt.num(pl.bs_total)} a BCV (IVA Bs {fmt.num(pl.bs_iva)})", F["sub"], C["mut"])
     else:
         agregar(f"Pago: Bs {fmt.num(pl.bs_total)} (IVA Bs {fmt.num(pl.bs_iva)})", F["sub"], C["mut"])
+    if pl.gasto_adicional:
+        agregar(f"Gasto adicional{(' (' + cond.gasto_concepto + ')') if cond.gasto_concepto else ''}: "
+                f"$ {fmt.num(pl.gasto_adicional)} interno, repartido según {'los kilos' if cond.gasto_reparto == 'kg' else 'el valor'} "
+                f"(incluido en el costo)", F["sub"], C["mut"])
     if pl.igtf:
         agregar(f"IGTF {cond.igtf_pct:g}%: $ {fmt.num(pl.igtf)} (incluido en el costo)", F["sub"], C["mut"])
     if pl.retencion_pct:

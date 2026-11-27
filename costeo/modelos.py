@@ -28,6 +28,7 @@ FORMAS_PAGO = {
     "monto_gandola": "Un monto en $ por gandola, el resto en Bs a BCV",
 }
 TASAS_BCV = {"usd": "BCV $ (dólar)", "eur": "BCV € (euro)"}
+REPARTO_GASTO = {"valor": "Según el valor de cada producto", "kg": "Según los kilos de cada producto"}
 MONEDAS_FLETE = {
     "usd": "$ (o Bs a tasa interna)",
     "bs": "Bolívares",
@@ -118,6 +119,10 @@ class Condiciones:
     descuentos: list[float] = field(default_factory=list)  # % en cascada, sobre la base
     tasa_base: str = "usd"           # tasa BCV con la que se pagan en Bs la base (usd | eur)
     tasa_iva: str = "usd"            # tasa BCV con la que se paga el IVA en Bs (usd | eur)
+    gasto_monto: float = 0.0         # gasto adicional del pedido (se reparte entre todos los productos)
+    gasto_moneda: str = "usd"        # usd | bs | usd_bcv (igual que el flete)
+    gasto_reparto: str = "valor"     # valor (según la base sin IVA) | kg (según el peso)
+    gasto_concepto: str = ""         # descripción libre: estiba, seguro, comisión…
     igtf: bool = False               # se paga IGTF sobre la parte de la base pagada en dólares
     igtf_pct: float = 3.0
     retencion_iva: bool = False      # informativo: parte del IVA se retiene y se entera al SENIAT
@@ -134,6 +139,8 @@ class Condiciones:
             (self.pago, FORMAS_PAGO, "pago"),
             (self.flete_moneda, MONEDAS_FLETE, "flete_moneda"),
             (self.tasa_base, TASAS_BCV, "tasa_base"),
+            (self.gasto_moneda, MONEDAS_FLETE, "gasto_moneda"),
+            (self.gasto_reparto, REPARTO_GASTO, "gasto_reparto"),
             (self.tasa_iva, TASAS_BCV, "tasa_iva"),
         ]
         for valor, permitidos, nombre in checks:
@@ -145,6 +152,8 @@ class Condiciones:
         self.pago_valor = _num(self.pago_valor)
         self.flete = _num(self.flete)
         self.iva_monto = _num(self.iva_monto)
+        self.gasto_monto = _num(self.gasto_monto)
+        self.gasto_concepto = str(self.gasto_concepto or "").strip()
         self.toneladas = _num(self.toneladas, 32.0) or 32.0
         self.descuentos = [d for d in (_num(x) for x in (self.descuentos or [])) if d]
         self.igtf = bool(self.igtf)
@@ -171,6 +180,7 @@ class Condiciones:
             round(self.flete, 6), self.flete_moneda, round(self.toneladas, 6),
             bool(self.flete_carga_real), tuple(round(d, 6) for d in self.descuentos),
             self.tasa_base, self.tasa_iva,
+            round(self.gasto_monto, 6), self.gasto_moneda, self.gasto_reparto, (self.gasto_concepto or "").strip(),
             bool(self.igtf), round(self.igtf_pct, 6) if self.igtf else 0.0,
             bool(self.retencion_iva), round(self.retencion_pct, 6) if self.retencion_iva else 0.0,
         )
@@ -234,6 +244,7 @@ class ResultadoLinea:
     iva_int: float = float("nan")
     flete_pieza: float = float("nan")
     igtf_pieza: float = 0.0             # IGTF por pieza, en $
+    gasto_pieza: float = 0.0            # gasto adicional por pieza, en $ interno
     costo_pieza: float = float("nan")
     costo_kg: float = float("nan")
     # Precio estimado y decisión
@@ -263,6 +274,7 @@ class PlanDePago:
     bs_iva: float = 0.0
     flete_int: float = 0.0       # flete completo en $ interno
     igtf: float = 0.0            # IGTF pagado (en $)
+    gasto_adicional: float = 0.0  # gasto adicional del pedido, en $ interno
     retencion_pct: float = 0.0   # % del IVA que se retiene (informativo, no cambia el costo)
     tasa_bcv: float = 0.0
     tasa_interna: float = 0.0
@@ -304,6 +316,7 @@ class Totales:
     iva_int: float = 0.0
     flete_asignado: float = 0.0
     igtf: float = 0.0
+    gasto_adicional: float = 0.0
     costo: float = 0.0
 
     @property

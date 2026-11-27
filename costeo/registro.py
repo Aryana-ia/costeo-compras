@@ -90,6 +90,10 @@ def filas_costeo(res: Resultado, p: Parametros, prov: Proveedor, cond: Condicion
         "Descuentos %": " + ".join(f"{d:g}" for d in cond.descuentos),
         "Flete": cond.flete,
         "Moneda flete": cond.flete_moneda,
+        "Gasto adicional": cond.gasto_monto or None,
+        "Moneda gasto": cond.gasto_moneda if cond.gasto_monto else None,
+        "Reparto gasto": cond.gasto_reparto if cond.gasto_monto else None,
+        "Concepto gasto": cond.gasto_concepto or None,
         "Factura / OC": factura.strip(),
         "Nota del costeo": observacion.strip(),
         # Todo lo necesario para reabrir el costeo tal cual (tasas, condiciones y productos)
@@ -142,6 +146,10 @@ def estado_json(res: Resultado, p: Parametros, prov: Proveedor, cond: Condicione
         "lineas": [{k: _limpio(v) for k, v in asdict(r.linea).items()} for r in res.lineas],
     }
     return json.dumps(datos, ensure_ascii=False)
+
+
+def _texto(v) -> str:
+    return "" if v is None or (isinstance(v, float) and math.isnan(v)) else str(v).strip()
 
 
 def _nan(v):
@@ -209,6 +217,8 @@ def _reconstruir(det: pd.DataFrame, proveedores: list[Proveedor]) -> dict:
         "tasa_base": "eur" if re.search(r"base (e IVA )?a BCV €", str(f0.get("Forma de pago", ""))) else "usd",
         "tasa_iva": "eur" if re.search(r"(base e IVA|· IVA) a BCV €", str(f0.get("Forma de pago", ""))) else "usd",
         "descuentos": descs, "flete": _num(f0.get("Flete")), "flete_moneda": f0.get("Moneda flete") or "usd",
+        "gasto_monto": _num(f0.get("Gasto adicional")), "gasto_moneda": _texto(f0.get("Moneda gasto")) or "usd",
+        "gasto_reparto": _texto(f0.get("Reparto gasto")) or "valor", "gasto_concepto": _texto(f0.get("Concepto gasto")),
     })
     tasa = iva / 100 * (0.10 if cond.iva_base == "10" else 1)
     factor_general = 1.0
